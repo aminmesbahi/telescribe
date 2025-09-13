@@ -68,6 +68,19 @@ Telescribe helps you turn your Telegram channel into a powerful content hub. It 
   - Ollama local installation for offline processing
 - **WordPress site** with application password for publishing
 
+## Screenshots
+### Main Menu
+![Menu](docs/screenshots/menu.png)
+### Exported Static site main page
+(Example)[https://techafternoon.mesbahi.net]
+![Menu](/docs/screenshots/static-index.png)
+### Exported Static site post page
+![Menu](/docs/screenshots/static-post.png)
+### Channel Statistics Reposrt
+![Menu](/docs/screenshots/reports.png)
+
+---
+
 ## How to Run
 
 ### 🔨 Coming soon: As .NET tool!
