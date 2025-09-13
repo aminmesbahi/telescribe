@@ -1,0 +1,10 @@
+{
+  "profiles": {
+    "Telescribe.Console": {
+      "commandName": "Project"
+    },
+    "Container (Dockerfile)": {
+      "commandName": "Docker"
+    }
+  }
+}

@@ -1,0 +1,4 @@
+<Solution>
+  <Project Path="Telescribe.Console/Telescribe.Console.csproj" Id="94268eb2-3f17-4e45-abc8-dd85c5230b50" />
+  <Project Path="Telescribe.Core/Telescribe.Core.csproj" Id="416f2bb0-14ed-4328-bf8c-23471b7de846" />
+</Solution>

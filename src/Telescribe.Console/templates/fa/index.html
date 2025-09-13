@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html lang="fa" dir="auto">
+<head>
+    <title>{{siteTitle}} - {{subtitle}}</title>
+    <meta charset='utf-8'>
+    <meta name='viewport' content='width=device-width, initial-scale=1'>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Vazirmatn:wght@100..900&display=swap" rel="stylesheet">
+    <link rel='stylesheet' href='assets/style.css'>
+    <meta name="description" content="{{description}}">
+</head>
+<body>
+    <header>
+        <h1>{{headerIcon}} {{siteTitle}}</h1>
+        <p>{{subtitle}}</p>
+    </header>
+    <main>
+        <div class='posts-grid'>
+            {{postsContent}}
+        </div>
+    </main>
+    <footer>
+        <p>Generated on {{generatedDate}} | Total Posts: {{totalPosts}}</p>
+    </footer>
+</body>
+</html>

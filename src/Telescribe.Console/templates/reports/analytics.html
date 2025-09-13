@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>📊 Telescribe Analytics Report</title>
+    <style>
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; margin: 0; padding: 20px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); min-height: 100vh; }
+        .container { background: white; padding: 40px; border-radius: 15px; box-shadow: 0 10px 30px rgba(0,0,0,0.2); }
+        h1 { color: #2c3e50; border-bottom: 3px solid #3498db; padding-bottom: 15px; margin-bottom: 30px; }
+        h2 { color: #34495e; margin-top: 40px; margin-bottom: 20px; }
+        .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 25px; margin: 30px 0; }
+        .stat-card { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 25px; border-radius: 10px; text-align: center; box-shadow: 0 3px 15px rgba(0,0,0,0.1); }
+        .stat-number { font-size: 2.5em; font-weight: bold; margin-bottom: 5px; }
+        .stat-label { font-size: 1.1em; opacity: 0.9; }
+        table { width: 100%; border-collapse: collapse; margin: 25px 0; background: white; }
+        th, td { padding: 15px; text-align: left; border-bottom: 1px solid #e9ecef; }
+        th { background: #3498db; color: white; font-weight: 600; }
+        tr:hover { background: #f8f9fa; }
+        .post-preview { max-width: 300px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .generated-at { color: #6c757d; font-size: 0.9em; margin-top: 40px; text-align: center; }
+        .metric { font-weight: 600; color: #495057; }
+    </style>
+</head>
+<body>
+    <div class='container'>
+        <h1>📊 Telescribe Analytics Report</h1>
+        
+        {{statsCards}}
+
+        <h2>🔥 Most Popular Posts</h2>
+        <table>
+            <tr><th>Post ID</th><th>Date</th><th>Views</th><th>Reactions</th><th>Forwards</th><th>Content Preview</th></tr>
+            {{popularPosts}}
+        </table>
+
+        <h2>📅 Recent Posts</h2>
+        <table>
+            <tr><th>Post ID</th><th>Date</th><th>Views</th><th>Reactions</th><th>Forwards</th><th>Content Preview</th></tr>
+            {{recentPosts}}
+        </table>
+
+        <h2>❤️ Most Reacted Posts</h2>
+        <table>
+            <tr><th>Post ID</th><th>Date</th><th>Reactions</th><th>Views</th><th>Forwards</th><th>Content Preview</th></tr>
+            {{reactedPosts}}
+        </table>
+
+        <h2>📤 Most Forwarded Posts</h2>
+        <table>
+            <tr><th>Post ID</th><th>Date</th><th>Forwards</th><th>Views</th><th>Reactions</th><th>Content Preview</th></tr>
+            {{forwardedPosts}}
+        </table>
+
+        <div class='generated-at'>
+            📅 Report generated on {{generatedDate}}
+        </div>
+    </div>
+</body>
+</html>
