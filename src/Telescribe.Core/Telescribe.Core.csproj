@@ -7,11 +7,11 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="WTelegramClient" Version="4.3.10" />
-    <PackageReference Include="System.Text.Json" Version="10.0.0-rc.1.25451.107" />
+    <PackageReference Include="WTelegramClient" Version="4.3.14" />
+    <PackageReference Include="System.Text.Json" Version="10.0.1" />
     <PackageReference Include="WordPressPCL" Version="2.1.0" />
-    <PackageReference Include="Microsoft.SemanticKernel" Version="1.65.0" />
-    <PackageReference Include="Microsoft.SemanticKernel.Connectors.OpenAI" Version="1.65.0" />
+    <PackageReference Include="Microsoft.SemanticKernel" Version="1.68.0" />
+    <PackageReference Include="Microsoft.SemanticKernel.Connectors.OpenAI" Version="1.68.0" />
   </ItemGroup>
 
 </Project>
