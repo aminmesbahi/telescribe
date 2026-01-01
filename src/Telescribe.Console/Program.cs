@@ -604,10 +604,30 @@ public class Program
                 continue;
             }
 
-            return trimmedLine;
+            return StripMarkdownFormatting(trimmedLine);
         }
 
         return null;
+    }
+
+    static string StripMarkdownFormatting(string text)
+    {
+        if (string.IsNullOrEmpty(text))
+            return text;
+
+        // Remove markdown links [text](url) and keep only the text
+        text = System.Text.RegularExpressions.Regex.Replace(text, @"\[([^\]]+)\]\([^\)]+\)", "$1");
+        
+        // Remove bold **text**
+        text = System.Text.RegularExpressions.Regex.Replace(text, @"\*\*(.*?)\*\*", "$1");
+        
+        // Remove italic *text*
+        text = System.Text.RegularExpressions.Regex.Replace(text, @"\*(.*?)\*", "$1");
+        
+        // Remove inline code `text`
+        text = System.Text.RegularExpressions.Regex.Replace(text, @"`([^`]+)`", "$1");
+        
+        return text;
     }
 
     static string ExtractPreview(string content, int maxLength = 150)
@@ -653,6 +673,8 @@ public class Program
         }
 
         var preview = contentBuilder.ToString().Trim();
+        preview = StripMarkdownFormatting(preview);
+        
         if (preview.Length > maxLength)
         {
             preview = preview.Substring(0, maxLength) + "...";
@@ -701,6 +723,9 @@ public class Program
 
                 var htmlLine = trimmedLine;
 
+                // Convert markdown links [text](url) to HTML <a> tags
+                htmlLine = System.Text.RegularExpressions.Regex.Replace(htmlLine, @"\[([^\]]+)\]\(([^\)]+)\)", "<a href='$2' target='_blank' rel='noopener noreferrer'>$1</a>");
+                
                 htmlLine = System.Text.RegularExpressions.Regex.Replace(htmlLine, @"\*\*(.*?)\*\*", "<strong>$1</strong>");
                 htmlLine = System.Text.RegularExpressions.Regex.Replace(htmlLine, @"\*(.*?)\*", "<em>$1</em>");
 

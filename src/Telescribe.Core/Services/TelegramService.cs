@@ -307,7 +307,7 @@ public class TelegramService : IDisposable
             {
                 Id = message.id,
                 CreatedAt = message.Date,
-                Content = message.message ?? string.Empty,
+                Content = ProcessMessageEntities(message.message ?? string.Empty, message.entities),
                 Views = message.views,
                 IsEdited = message.edit_date != default,
                 EditedAt = message.edit_date != default ? message.edit_date : null
@@ -406,6 +406,94 @@ public class TelegramService : IDisposable
         };
 
         return $"{postId}_document{extension}";
+    }
+
+    private string ProcessMessageEntities(string text, MessageEntity[]? entities)
+    {
+        if (string.IsNullOrEmpty(text) || entities == null || entities.Length == 0)
+            return text;
+
+        // Group entities by their position to handle overlapping entities
+        var entityRanges = new List<(int offset, int length, string replacement)>();
+
+        // Priority: TextUrl/Url > Pre > Code > Bold/Italic
+        // Process links first, then code blocks, then formatting
+        var prioritizedEntities = entities
+            .OrderBy(e => e switch
+            {
+                MessageEntityTextUrl => 0,
+                MessageEntityUrl => 0,
+                MessageEntityPre => 1,
+                MessageEntityCode => 2,
+                _ => 3
+            })
+            .ThenBy(e => e.offset)
+            .ToList();
+
+        var processedRanges = new HashSet<(int, int)>();
+
+        foreach (var entity in prioritizedEntities)
+        {
+            // Skip if this range overlaps with a higher-priority entity
+            if (processedRanges.Any(range => 
+                (entity.offset >= range.Item1 && entity.offset < range.Item1 + range.Item2) ||
+                (entity.offset + entity.length > range.Item1 && entity.offset + entity.length <= range.Item1 + range.Item2) ||
+                (entity.offset <= range.Item1 && entity.offset + entity.length >= range.Item1 + range.Item2)))
+            {
+                continue;
+            }
+
+            var entityText = text.Substring(entity.offset, entity.length);
+            string? replacement = null;
+
+            switch (entity)
+            {
+                case MessageEntityTextUrl textUrl:
+                    replacement = $"[{entityText}]({textUrl.url})";
+                    processedRanges.Add((entity.offset, entity.length));
+                    break;
+                
+                case MessageEntityUrl:
+                    replacement = $"[{entityText}]({entityText})";
+                    processedRanges.Add((entity.offset, entity.length));
+                    break;
+                
+                case MessageEntityBold:
+                    replacement = $"**{entityText}**";
+                    break;
+                
+                case MessageEntityItalic:
+                    replacement = $"*{entityText}*";
+                    break;
+                
+                case MessageEntityCode:
+                    replacement = $"`{entityText}`";
+                    processedRanges.Add((entity.offset, entity.length));
+                    break;
+                
+                case MessageEntityPre pre:
+                    var language = !string.IsNullOrEmpty(pre.language) ? pre.language : "";
+                    replacement = $"```{language}\n{entityText}\n```";
+                    processedRanges.Add((entity.offset, entity.length));
+                    break;
+            }
+
+            if (replacement != null)
+            {
+                entityRanges.Add((entity.offset, entity.length, replacement));
+            }
+        }
+
+        // Sort by offset descending to process from end to start (prevents offset shifts)
+        entityRanges = entityRanges.OrderByDescending(e => e.offset).ToList();
+
+        foreach (var (offset, length, replacement) in entityRanges)
+        {
+            text = text.Remove(offset, length);
+            text = text.Insert(offset, replacement);
+        }
+
+        return text;
     }
 
     private async Task SavePostAsMarkdownAsync(TelegramPost post)
