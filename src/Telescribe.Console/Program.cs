@@ -886,6 +886,7 @@ public class Program
         var lines = markdown.Split('\n');
         var htmlBuilder = new StringBuilder();
         bool skippedMetadata = false;
+        bool inCodeBlock = false;
 
         foreach (var line in lines)
         {
@@ -906,47 +907,82 @@ public class Program
                 skippedMetadata = true;
             }
 
-            if (skippedMetadata)
+            if (!skippedMetadata)
+                continue;
+
+            // Fenced code block delimiter
+            if (trimmedLine.StartsWith("```"))
             {
-                if (trimmedLine.Equals("[No content]", StringComparison.OrdinalIgnoreCase))
+                if (!inCodeBlock)
                 {
-                    htmlBuilder.AppendLine("<p class='no-content-notice'>⚠️ This post had no text content (e.g. a poll or media-only post).</p>");
-                    continue;
+                    var lang = trimmedLine.Substring(3).Trim();
+                    var classAttr = lang.Length > 0
+                        ? $" class=\"language-{System.Net.WebUtility.HtmlEncode(lang)}\""
+                        : "";
+                    htmlBuilder.AppendLine($"<pre><code{classAttr}>");
+                    inCodeBlock = true;
                 }
-
-                if (trimmedLine.StartsWith("!["))
-                {
-                    var match = System.Text.RegularExpressions.Regex.Match(trimmedLine, @"!\[.*?\]\((.*?)\)");
-                    if (match.Success)
-                    {
-                        var imagePath = match.Groups[1].Value;
-                        htmlBuilder.AppendLine($"<img src='../{imagePath}' alt='Post Image' style='max-width: 100%; height: auto; border-radius: 8px; margin: 15px 0;'>");
-                    }
-                    continue;
-                }
-
-                var htmlLine = trimmedLine;
-
-                htmlLine = System.Text.RegularExpressions.Regex.Replace(htmlLine, @"\[([^\]]+)\]\(([^\)]+)\)", "<a href='$2' target='_blank' rel='noopener noreferrer'>$1</a>");
-                
-                htmlLine = System.Text.RegularExpressions.Regex.Replace(htmlLine, @"\*\*(.*?)\*\*", "<strong>$1</strong>");
-                htmlLine = System.Text.RegularExpressions.Regex.Replace(htmlLine, @"\*(.*?)\*", "<em>$1</em>");
-
-                if (htmlLine.StartsWith("### "))
-                    htmlLine = $"<h3>{htmlLine.Substring(4)}</h3>";
-                else if (htmlLine.StartsWith("## "))
-                    htmlLine = $"<h2>{htmlLine.Substring(3)}</h2>";
-                else if (htmlLine.StartsWith("# "))
-                    htmlLine = $"<h1>{htmlLine.Substring(2)}</h1>";
-
-                if (string.IsNullOrWhiteSpace(htmlLine))
-                    htmlBuilder.AppendLine("<br>");
-                else if (!htmlLine.StartsWith("<h") && !htmlLine.StartsWith("<img"))
-                    htmlBuilder.AppendLine($"<p>{htmlLine}</p>");
                 else
-                    htmlBuilder.AppendLine(htmlLine);
+                {
+                    htmlBuilder.AppendLine("</code></pre>");
+                    inCodeBlock = false;
+                }
+                continue;
             }
+
+            // Inside a code block: preserve indentation and escape HTML entities
+            if (inCodeBlock)
+            {
+                htmlBuilder.AppendLine(System.Net.WebUtility.HtmlEncode(line));
+                continue;
+            }
+
+            if (trimmedLine.Equals("[No content]", StringComparison.OrdinalIgnoreCase))
+            {
+                htmlBuilder.AppendLine("<p class='no-content-notice'>⚠️ This post had no text content (e.g. a poll or media-only post).</p>");
+                continue;
+            }
+
+            if (trimmedLine.StartsWith("!["))
+            {
+                var match = System.Text.RegularExpressions.Regex.Match(trimmedLine, @"!\[.*?\]\((.*?)\)");
+                if (match.Success)
+                {
+                    var imagePath = match.Groups[1].Value;
+                    htmlBuilder.AppendLine($"<img src='../{imagePath}' alt='Post Image' style='max-width: 100%; height: auto; border-radius: 8px; margin: 15px 0;'>");
+                }
+                continue;
+            }
+
+            var htmlLine = trimmedLine;
+
+            // Inline code must be extracted before bold/italic to avoid processing its content
+            htmlLine = System.Text.RegularExpressions.Regex.Replace(htmlLine, @"`([^`]+)`",
+                m => $"<code>{System.Net.WebUtility.HtmlEncode(m.Groups[1].Value)}</code>");
+
+            htmlLine = System.Text.RegularExpressions.Regex.Replace(htmlLine, @"\[([^\]]+)\]\(([^\)]+)\)", "<a href='$2' target='_blank' rel='noopener noreferrer'>$1</a>");
+
+            htmlLine = System.Text.RegularExpressions.Regex.Replace(htmlLine, @"\*\*(.*?)\*\*", "<strong>$1</strong>");
+            htmlLine = System.Text.RegularExpressions.Regex.Replace(htmlLine, @"\*(.*?)\*", "<em>$1</em>");
+
+            if (htmlLine.StartsWith("### "))
+                htmlLine = $"<h3>{htmlLine.Substring(4)}</h3>";
+            else if (htmlLine.StartsWith("## "))
+                htmlLine = $"<h2>{htmlLine.Substring(3)}</h2>";
+            else if (htmlLine.StartsWith("# "))
+                htmlLine = $"<h1>{htmlLine.Substring(2)}</h1>";
+
+            if (string.IsNullOrWhiteSpace(htmlLine))
+                htmlBuilder.AppendLine("<br>");
+            else if (!htmlLine.StartsWith("<h") && !htmlLine.StartsWith("<img"))
+                htmlBuilder.AppendLine($"<p>{htmlLine}</p>");
+            else
+                htmlBuilder.AppendLine(htmlLine);
         }
+
+        // Close an unclosed code block gracefully
+        if (inCodeBlock)
+            htmlBuilder.AppendLine("</code></pre>");
 
         return htmlBuilder.ToString();
     }

@@ -233,6 +233,37 @@ footer a:hover {
     }
 }
 
+/* Code blocks */
+pre {
+    background: #1e1e2e;
+    color: #cdd6f4;
+    padding: 1rem 1.25rem;
+    border-radius: 8px;
+    overflow-x: auto;
+    margin: 1rem 0;
+    font-size: 0.9rem;
+    line-height: 1.6;
+    direction: ltr;
+    text-align: left;
+}
+pre code {
+    background: none;
+    color: inherit;
+    padding: 0;
+    border-radius: 0;
+    font-size: inherit;
+}
+code {
+    background: #f0f0f5;
+    color: #c7254e;
+    padding: 0.15em 0.4em;
+    border-radius: 4px;
+    font-family: "Consolas", "Fira Code", monospace;
+    font-size: 0.9em;
+    direction: ltr;
+    unicode-bidi: embed;
+}
+
 /* No-content notice (polls, media-only posts) */
 .no-content-notice {
     background: #fff8e1;
