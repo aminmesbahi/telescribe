@@ -64,6 +64,10 @@ public class Program
                     await GenerateStaticSite(config);
                     break;
 
+                case "8":
+                    await UpdateStaticSite(config);
+                    break;
+
                 case "7":
                 case "0":
                 case "exit":
@@ -72,7 +76,7 @@ public class Program
                     return;
 
                 default:
-                    WriteLine("❌ Invalid choice. Please enter a number from 1-7.");
+                    WriteLine("❌ Invalid choice. Please enter a number from 1-8.");
                     break;
             }
 
@@ -97,10 +101,11 @@ public class Program
         WriteLine("   🌐 4  WordPress Integration     - Coming Soon! 🚧");
         WriteLine("   📊 5  Analytics Reports         - Generate detailed insights");
         WriteLine("   🏗️  6  Static Website Builder    - Create a beautiful website");
+        WriteLine("   � 8  Update Static Website      - Refresh existing site with new posts");
         WriteLine("   🚪 7  Exit Application          - Close Telescribe");
         WriteLine();
         WriteLine("═══════════════════════════════════════════════════════════════");
-        Write("🎯 Enter your choice (1-7): ");
+        Write("🎯 Enter your choice (1-8): ");
     }
 
     static TelegramConfig? LoadConfiguration(IConfiguration configuration)
@@ -585,6 +590,173 @@ public class Program
                 WriteLine($"❌ Could not open browser: {ex.Message}");
                 WriteLine($"   Please open manually: {indexUrl}");
             }
+        }
+    }
+
+    static async Task UpdateStaticSite(TelegramConfig config)
+    {
+        WriteLine("\n🔄 Updating Static Website...");
+        WriteLine(new string('─', 50));
+
+        var exportDir = "./exports";
+        if (!Directory.Exists(exportDir))
+        {
+            WriteLine("❌ Export directory not found. Please run export first.");
+            return;
+        }
+
+        // Find the most recently created site folder
+        var siteDir = Directory.GetDirectories(exportDir, "website_*")
+            .OrderByDescending(d => d)
+            .FirstOrDefault();
+
+        if (siteDir == null)
+        {
+            WriteLine("❌ No generated site found. Run option 6 (Static Website Builder) first.");
+            return;
+        }
+
+        WriteLine($"📂 Updating site: {siteDir}");
+
+        var markdownFiles = Directory.GetFiles(exportDir, "*.md")
+            .Where(f => !Path.GetFileName(f).Equals("summary.json", StringComparison.OrdinalIgnoreCase))
+            .ToArray();
+
+        if (markdownFiles.Length == 0)
+        {
+            WriteLine("❌ No markdown files found.");
+            return;
+        }
+
+        var baseDirectory = Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location) ?? Directory.GetCurrentDirectory();
+        var templatesPath = Path.Combine(baseDirectory, "templates", config.StaticSite.TemplateName);
+        if (!Directory.Exists(templatesPath))
+            templatesPath = Path.Combine("templates", config.StaticSite.TemplateName);
+
+        if (!Directory.Exists(templatesPath))
+        {
+            WriteLine($"❌ Template directory not found: {templatesPath}");
+            return;
+        }
+
+        var siteGenerator = new SiteGeneratorService(templatesPath);
+        var assetsSource = Path.Combine(templatesPath, "style.css");
+        var cssContent = File.Exists(assetsSource) ? await File.ReadAllTextAsync(assetsSource) : "";
+
+        // Sync new media files (skip existing ones)
+        var mediaSource = Path.Combine(exportDir, "media");
+        var newMediaCount = 0;
+        if (Directory.Exists(mediaSource))
+        {
+            var mediaTarget = Path.Combine(siteDir, "media");
+            Directory.CreateDirectory(mediaTarget);
+            foreach (var mediaFile in Directory.GetFiles(mediaSource, "*", SearchOption.AllDirectories))
+            {
+                var relativePath = Path.GetRelativePath(mediaSource, mediaFile);
+                var destFile = Path.Combine(mediaTarget, relativePath);
+                if (!File.Exists(destFile))
+                {
+                    Directory.CreateDirectory(Path.GetDirectoryName(destFile)!);
+                    File.Copy(mediaFile, destFile);
+                    newMediaCount++;
+                }
+            }
+        }
+
+        // Build post data from all markdown files
+        var posts = new List<PostData>();
+        foreach (var file in markdownFiles)
+        {
+            var fileName = Path.GetFileNameWithoutExtension(file);
+            var content = await File.ReadAllTextAsync(file);
+            var title = ExtractTitle(content) ?? fileName;
+            var preview = ExtractPreview(content);
+            var dateCreated = ExtractCreationDate(content);
+            var (views, reactions, forwards) = ExtractMetadata(content);
+            var htmlContent = ConvertMarkdownToHtml(content);
+            var isNoContent = content.Contains("[No content]");
+
+            posts.Add(new PostData
+            {
+                Filename = fileName,
+                Title = title ?? $"Post #{fileName}",
+                Preview = isNoContent ? "📊 Poll or media-only post" : preview,
+                Content = htmlContent,
+                Date = dateCreated,
+                Views = views,
+                Reactions = reactions,
+                Forwards = forwards,
+                IsNoContent = isNoContent
+            });
+        }
+
+        var sortedPosts = posts
+            .Where(p => !config.StaticSite.SkipEmptyContentPosts || !p.IsNoContent)
+            .OrderByDescending(p => p.Date)
+            .Take(config.StaticSite.MaxPostsInIndex)
+            .ToList();
+
+        // Re-render each post (creates new ones and updates metadata on existing ones)
+        var postsOutDir = Path.Combine(siteDir, "posts");
+        Directory.CreateDirectory(postsOutDir);
+        int newPostCount = 0, updatedPostCount = 0;
+
+        foreach (var post in sortedPosts)
+        {
+            var postPath = Path.Combine(postsOutDir, $"{post.Filename}.html");
+            bool isNew = !File.Exists(postPath);
+            var postHtml = InlineCss(siteGenerator.RenderPostPage(config.StaticSite, post), cssContent);
+            await File.WriteAllTextAsync(postPath, postHtml);
+            if (isNew) newPostCount++; else updatedPostCount++;
+        }
+
+        // Regenerate index and sitemap
+        var indexHtml = InlineCss(siteGenerator.RenderIndexPage(config.StaticSite, sortedPosts, DateTime.Now), cssContent);
+        await File.WriteAllTextAsync(Path.Combine(siteDir, "index.html"), indexHtml);
+
+        var aboutTemplatePath = Path.Combine(templatesPath, "about.html");
+        if (File.Exists(aboutTemplatePath))
+        {
+            var aboutHtml = InlineCss(siteGenerator.RenderTemplate("about.html", new Dictionary<string, string>
+            {
+                ["siteTitle"]   = config.StaticSite.SiteTitle,
+                ["subtitle"]    = config.StaticSite.Subtitle,
+                ["headerIcon"]  = config.StaticSite.HeaderIcon,
+                ["description"] = config.StaticSite.Description,
+            }), cssContent);
+            await File.WriteAllTextAsync(Path.Combine(siteDir, "about.html"), aboutHtml);
+        }
+
+        var baseUrl = !string.IsNullOrWhiteSpace(config.StaticSite.SiteBaseUrl)
+            ? config.StaticSite.SiteBaseUrl
+            : "https://localhost";
+        var sitemapXml = siteGenerator.GenerateSitemap(config.StaticSite, sortedPosts, baseUrl, File.Exists(aboutTemplatePath));
+        await File.WriteAllTextAsync(Path.Combine(siteDir, "sitemap.xml"), sitemapXml);
+
+        // Update assets/style.css as well
+        if (File.Exists(assetsSource))
+            File.Copy(assetsSource, Path.Combine(siteDir, "assets", "style.css"), overwrite: true);
+
+        WriteLine($"✅ Site updated successfully!");
+        WriteLine($"   📂 Site folder: {siteDir}");
+        WriteLine($"   🆕 New posts added: {newPostCount}");
+        WriteLine($"   🔄 Posts refreshed (metadata updated): {updatedPostCount}");
+        if (newMediaCount > 0)
+            WriteLine($"   🖼️  New media files synced: {newMediaCount}");
+        WriteLine($"   📋 Total posts in site: {sortedPosts.Count}");
+
+        if (config.StaticSite.OpenBrowserAfterGeneration)
+        {
+            var indexUrl = Path.GetFullPath(Path.Combine(siteDir, "index.html"));
+            try
+            {
+                System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+                {
+                    FileName = indexUrl,
+                    UseShellExecute = true
+                });
+            }
+            catch { }
         }
     }
 
