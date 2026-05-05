@@ -101,7 +101,7 @@ public class Program
         WriteLine("   🌐 4  WordPress Integration     - Coming Soon! 🚧");
         WriteLine("   📊 5  Analytics Reports         - Generate detailed insights");
         WriteLine("   🏗️  6  Static Website Builder    - Create a beautiful website");
-        WriteLine("   � 8  Update Static Website      - Refresh existing site with new posts");
+        WriteLine("   🔄 8  Update Static Website      - Refresh existing site with new posts");
         WriteLine("   🚪 7  Exit Application          - Close Telescribe");
         WriteLine();
         WriteLine("═══════════════════════════════════════════════════════════════");
