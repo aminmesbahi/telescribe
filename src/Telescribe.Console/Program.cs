@@ -464,6 +464,7 @@ public class Program
         var siteGenerator = new SiteGeneratorService(templatesPath);
 
         var assetsSource = Path.Combine(templatesPath, "style.css");
+        var cssContent = File.Exists(assetsSource) ? await File.ReadAllTextAsync(assetsSource) : "";
         if (File.Exists(assetsSource))
         {
             var assetsTarget = Path.Combine(siteDir, "assets", "style.css");
@@ -530,12 +531,12 @@ public class Program
 
         foreach (var post in sortedPosts)
         {
-            var postHtml = siteGenerator.RenderPostPage(config.StaticSite, post);
+            var postHtml = InlineCss(siteGenerator.RenderPostPage(config.StaticSite, post), cssContent);
             var postPath = Path.Combine(siteDir, "posts", $"{post.Filename}.html");
             await File.WriteAllTextAsync(postPath, postHtml);
         }
 
-        var indexHtml = siteGenerator.RenderIndexPage(config.StaticSite, sortedPosts, DateTime.Now);
+        var indexHtml = InlineCss(siteGenerator.RenderIndexPage(config.StaticSite, sortedPosts, DateTime.Now), cssContent);
         var indexPath = Path.Combine(siteDir, "index.html");
         await File.WriteAllTextAsync(indexPath, indexHtml);
 
@@ -543,13 +544,13 @@ public class Program
         bool hasAboutPage = File.Exists(aboutTemplatePath);
         if (hasAboutPage)
         {
-            var aboutHtml = siteGenerator.RenderTemplate("about.html", new Dictionary<string, string>
+            var aboutHtml = InlineCss(siteGenerator.RenderTemplate("about.html", new Dictionary<string, string>
             {
                 ["siteTitle"]   = config.StaticSite.SiteTitle,
                 ["subtitle"]    = config.StaticSite.Subtitle,
                 ["headerIcon"]  = config.StaticSite.HeaderIcon,
                 ["description"] = config.StaticSite.Description,
-            });
+            }), cssContent);
             await File.WriteAllTextAsync(Path.Combine(siteDir, "about.html"), aboutHtml);
             WriteLine("✅ Generated about.html");
         }
@@ -630,6 +631,16 @@ public class Program
         }
 
         return null;
+    }
+
+    static string InlineCss(string html, string cssContent)
+    {
+        if (string.IsNullOrEmpty(cssContent)) return html;
+        return System.Text.RegularExpressions.Regex.Replace(
+            html,
+            @"<link\s+rel=['""]stylesheet['""]\s+href=['""][./]*assets/style\.css['""]\s*/?>",
+            $"<style>{cssContent}</style>",
+            System.Text.RegularExpressions.RegexOptions.IgnoreCase);
     }
 
     static string StripMarkdownFormatting(string text)
