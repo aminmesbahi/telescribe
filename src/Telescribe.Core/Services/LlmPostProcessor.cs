@@ -8,7 +8,7 @@ public class LlmPostProcessor : IDisposable
     private readonly LlmConfig _config;
     private readonly string _outputDirectory;
     private readonly TemplateService _templateService;
-    private LlmService? _llmService;
+    private LlmService? _llmService = null;
 
     public LlmPostProcessor(LlmConfig config, string outputDirectory = "./llm-output")
     {
