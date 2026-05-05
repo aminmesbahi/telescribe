@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="fa" dir="auto">
+<html lang="fa" dir="rtl">
 <head>
     <title>{{siteTitle}} - {{subtitle}}</title>
     <meta charset='utf-8'>
@@ -9,6 +9,17 @@
     <link href="https://fonts.googleapis.com/css2?family=Vazirmatn:wght@100..900&display=swap" rel="stylesheet">
     <link rel='stylesheet' href='assets/style.css'>
     <meta name="description" content="{{description}}">
+    <style>
+        .controls-bar { display:flex; flex-wrap:wrap; gap:1rem; align-items:center; margin-bottom:1.5rem; padding:1rem; background:#fff; border-radius:8px; box-shadow:0 2px 8px rgba(0,0,0,.08); }
+        .search-box { flex:1; min-width:200px; padding:.6rem 1rem; border:1px solid #ddd; border-radius:6px; font-family:inherit; font-size:1rem; }
+        .sort-select { padding:.6rem 1rem; border:1px solid #ddd; border-radius:6px; font-family:inherit; font-size:.95rem; background:#fff; cursor:pointer; }
+        .pagination { display:flex; justify-content:center; gap:.5rem; margin-top:2rem; flex-wrap:wrap; }
+        .pagination button { padding:.5rem 1rem; border:1px solid #3498db; background:#fff; color:#3498db; border-radius:6px; cursor:pointer; font-family:inherit; transition:background .2s,color .2s; }
+        .pagination button.active, .pagination button:hover { background:#3498db; color:#fff; }
+        .pagination button:disabled { opacity:.4; cursor:default; border-color:#ccc; color:#ccc; background:#fff; }
+        #no-results { display:none; text-align:center; padding:3rem; color:#7f8c8d; font-size:1.1rem; }
+        .post-card[hidden] { display:none; }
+    </style>
 </head>
 <body>
     <header>
@@ -16,12 +27,139 @@
         <p>{{subtitle}}</p>
     </header>
     <main>
-        <div class='posts-grid'>
+        <div class="controls-bar">
+            <input type="search" id="search-input" class="search-box" placeholder="جستجو در پست‌ها..." oninput="applyFilters()">
+            <select id="sort-select" class="sort-select" onchange="applyFilters()">
+                <option value="date-desc">جدیدترین</option>
+                <option value="date-asc">قدیمی‌ترین</option>
+                <option value="views-desc">بیشترین بازدید</option>
+                <option value="reactions-desc">بیشترین واکنش</option>
+                <option value="forwards-desc">بیشترین فوروارد</option>
+            </select>
+        </div>
+        <div id='posts-grid' class='posts-grid'>
             {{postsContent}}
         </div>
+        <p id="no-results">هیچ پستی یافت نشد.</p>
+        <div class="pagination" id="pagination"></div>
     </main>
     <footer>
         <p>Generated on {{generatedDate}} | Total Posts: {{totalPosts}}</p>
     </footer>
+    <script>
+        const PAGE_SIZE = 12;
+        let currentPage = 1;
+        let filteredCards = [];
+
+        function getAllCards() {
+            return Array.from(document.querySelectorAll('#posts-grid .post-card'));
+        }
+
+        function sortAndFilter() {
+            const query = document.getElementById('search-input').value.trim().toLowerCase();
+            const sort  = document.getElementById('sort-select').value;
+            filteredCards = getAllCards().filter(c => !query || c.textContent.toLowerCase().includes(query));
+            filteredCards.sort((a, b) => {
+                if (sort === 'date-desc')     return (b.dataset.date||'').localeCompare(a.dataset.date||'');
+                if (sort === 'date-asc')      return (a.dataset.date||'').localeCompare(b.dataset.date||'');
+                if (sort === 'views-desc')    return (+b.dataset.views||0)     - (+a.dataset.views||0);
+                if (sort === 'reactions-desc')return (+b.dataset.reactions||0) - (+a.dataset.reactions||0);
+                if (sort === 'forwards-desc') return (+b.dataset.forwards||0)  - (+a.dataset.forwards||0);
+                return 0;
+            });
+        }
+
+        function applyFilters() {
+            currentPage = 1;
+            sortAndFilter();
+            render();
+            pushState();
+        }
+
+        function goToPage(page) {
+            currentPage = page;
+            render();
+            pushState();
+            window.scrollTo(0, 0);
+        }
+
+        function buildUrl(page, sort, search) {
+            const p = new URLSearchParams();
+            if (page > 1)                    p.set('page', page);
+            if (sort && sort !== 'date-desc') p.set('sort', sort);
+            if (search)                       p.set('q', search);
+            const qs = p.toString();
+            return qs ? location.pathname + '?' + qs : location.pathname;
+        }
+
+        function pushState() {
+            const sort   = document.getElementById('sort-select').value;
+            const search = document.getElementById('search-input').value;
+            history.pushState({ page: currentPage, sort, search }, '', buildUrl(currentPage, sort, search));
+        }
+
+        window.addEventListener('popstate', e => {
+            const state = e.state || { page: 1, sort: 'date-desc', search: '' };
+            currentPage = state.page || 1;
+            document.getElementById('sort-select').value  = state.sort   || 'date-desc';
+            document.getElementById('search-input').value = state.search || '';
+            sortAndFilter();
+            render();
+        });
+
+        function render() {
+            const grid  = document.getElementById('posts-grid');
+            const total = filteredCards.length;
+            document.getElementById('no-results').style.display = total === 0 ? 'block' : 'none';
+
+            const start     = (currentPage - 1) * PAGE_SIZE;
+            const pageCards = filteredCards.slice(start, start + PAGE_SIZE);
+
+            // Hide all, then re-append visible cards in sorted order (fixes DOM ordering)
+            getAllCards().forEach(c => c.style.display = 'none');
+            pageCards.forEach(c => { grid.appendChild(c); c.style.display = ''; });
+
+            renderPagination(total);
+        }
+
+        function renderPagination(total) {
+            const pages = Math.ceil(total / PAGE_SIZE);
+            const pag   = document.getElementById('pagination');
+            pag.innerHTML = '';
+            if (pages <= 1) return;
+
+            const btn = (label, page, disabled, active) => {
+                const b = document.createElement('button');
+                b.textContent = label;
+                if (disabled) b.disabled = true;
+                if (active) b.classList.add('active');
+                b.addEventListener('click', () => goToPage(page));
+                return b;
+            };
+
+            pag.appendChild(btn('«', 1, currentPage === 1, false));
+            pag.appendChild(btn('‹', currentPage - 1, currentPage === 1, false));
+            let startP = Math.max(1, currentPage - 2);
+            let endP   = Math.min(pages, startP + 4);
+            startP = Math.max(1, endP - 4);
+            for (let i = startP; i <= endP; i++) pag.appendChild(btn(i, i, false, i === currentPage));
+            pag.appendChild(btn('›', currentPage + 1, currentPage === pages, false));
+            pag.appendChild(btn('»', pages, currentPage === pages, false));
+        }
+
+        // Init
+        (function () {
+            const p = new URLSearchParams(location.search);
+            const sort   = p.get('sort') || 'date-desc';
+            const search = p.get('q')    || '';
+            const page   = Math.max(1, parseInt(p.get('page') || '1', 10));
+            document.getElementById('sort-select').value  = sort;
+            document.getElementById('search-input').value = search;
+            sortAndFilter();
+            currentPage = Math.min(page, Math.ceil(filteredCards.length / PAGE_SIZE) || 1);
+            history.replaceState({ page: currentPage, sort, search }, '', buildUrl(currentPage, sort, search));
+            render();
+        })();
+    </script>
 </body>
 </html>

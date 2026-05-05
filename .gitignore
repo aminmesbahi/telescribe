@@ -43,6 +43,16 @@ appsettings.*.json
 ehthumbs.db
 Thumbs.db
 
-# Export folders (optional - uncomment if you don't want to track exports)
+# Channel-specific and personal templates (not for public repo)
+**/templates/techafternoon/
+
+# Personal data files
+src/Telescribe.Console/basehashtags.json
+src/Telescribe.Console/input.txt
+
+# Qodana analysis config
+**/qodana.yaml
+
+# Export folders
 # exports/
 # **/exports/

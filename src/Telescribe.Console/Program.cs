@@ -39,11 +39,7 @@ public class Program
             await GenerateHtmlReports(config);
             return;
         }
-        if (config == null)
-        {
-            WriteLine("❌ Configuration validation failed. Please check your settings.");
-            return;
-        }
+
 
         while (true)
         {
@@ -59,14 +55,6 @@ public class Program
                 case "2":
                     await UpdateExistingExports(config);
                     break;
-
-                // case "3":
-                //     await ProcessWithLlm(config);
-                //     break;
-
-                // case "4":
-                //     await UploadToWordPress(config);
-                //     break;
 
                 case "5":
                     await GenerateHtmlReports(config);
@@ -496,6 +484,26 @@ public class Program
             WriteLine("✅ Copied template assets");
         }
 
+        var mediaSource = Path.Combine(exportDir, "media");
+        if (Directory.Exists(mediaSource))
+        {
+            var mediaTarget = Path.Combine(siteDir, "media");
+            Directory.CreateDirectory(mediaTarget);
+            foreach (var mediaFile in Directory.GetFiles(mediaSource, "*", SearchOption.AllDirectories))
+            {
+                var relativePath = Path.GetRelativePath(mediaSource, mediaFile);
+                var destFile = Path.Combine(mediaTarget, relativePath);
+                Directory.CreateDirectory(Path.GetDirectoryName(destFile)!);
+                File.Copy(mediaFile, destFile, overwrite: true);
+            }
+            var mediaCount = Directory.GetFiles(mediaTarget, "*", SearchOption.AllDirectories).Length;
+            WriteLine($"✅ Copied {mediaCount} media file(s) to site");
+        }
+        else
+        {
+            WriteLine("ℹ️  No media folder found — skipping media copy");
+        }
+
         var posts = new List<PostData>();
 
         foreach (var file in markdownFiles)
@@ -507,23 +515,26 @@ public class Program
             var dateCreated = ExtractCreationDate(content);
             var (views, reactions, forwards) = ExtractMetadata(content);
             var htmlContent = ConvertMarkdownToHtml(content);
+            var isNoContent = content.Contains("[No content]");
 
             var postData = new PostData
             {
                 Filename = fileName,
-                Title = title,
-                Preview = preview,
+                Title = title ?? $"Post #{fileName}",
+                Preview = isNoContent ? "📊 Poll or media-only post" : preview,
                 Content = htmlContent,
                 Date = dateCreated,
                 Views = views,
                 Reactions = reactions,
-                Forwards = forwards
+                Forwards = forwards,
+                IsNoContent = isNoContent
             };
 
             posts.Add(postData);
         }
 
         var sortedPosts = posts
+            .Where(p => !config.StaticSite.SkipEmptyContentPosts || !p.IsNoContent)
             .OrderByDescending(p => p.Date)
             .Take(config.StaticSite.MaxPostsInIndex)
             .ToList();
@@ -541,10 +552,33 @@ public class Program
         var indexPath = Path.Combine(siteDir, "index.html");
         await File.WriteAllTextAsync(indexPath, indexHtml);
 
+        var aboutTemplatePath = Path.Combine(templatesPath, "about.html");
+        bool hasAboutPage = File.Exists(aboutTemplatePath);
+        if (hasAboutPage)
+        {
+            var aboutHtml = siteGenerator.RenderTemplate("about.html", new Dictionary<string, string>
+            {
+                ["siteTitle"]   = config.StaticSite.SiteTitle,
+                ["subtitle"]    = config.StaticSite.Subtitle,
+                ["headerIcon"]  = config.StaticSite.HeaderIcon,
+                ["description"] = config.StaticSite.Description,
+            });
+            await File.WriteAllTextAsync(Path.Combine(siteDir, "about.html"), aboutHtml);
+            WriteLine("✅ Generated about.html");
+        }
+
+        var baseUrl = !string.IsNullOrWhiteSpace(config.StaticSite.SiteBaseUrl)
+            ? config.StaticSite.SiteBaseUrl
+            : "https://localhost";
+        var sitemapXml = siteGenerator.GenerateSitemap(config.StaticSite, sortedPosts, baseUrl, hasAboutPage);
+        var sitemapPath = Path.Combine(siteDir, "sitemap.xml");
+        await File.WriteAllTextAsync(sitemapPath, sitemapXml);
+
         WriteLine($"✅ Static website generated successfully!");
         WriteLine($"   🌐 Site saved to: {siteDir}");
-        WriteLine($"   � {sortedPosts.Count} posts generated");
-        WriteLine($"   � Template: {config.StaticSite.TemplateName}");
+        WriteLine($"   📌 {sortedPosts.Count} posts generated");
+        WriteLine($"   🗺️  Sitemap: {sitemapPath}");
+        WriteLine($"   📌 Template: {config.StaticSite.TemplateName}");
 
         if (config.StaticSite.OpenBrowserAfterGeneration)
         {
@@ -599,6 +633,7 @@ public class Program
                 trimmedLine.StartsWith("**Forwards:**") ||
                 trimmedLine.StartsWith("**LLM Processed:**") ||
                 trimmedLine.StartsWith("![") ||
+                trimmedLine.Equals("[No content]", StringComparison.OrdinalIgnoreCase) ||
                 string.IsNullOrWhiteSpace(trimmedLine))
             {
                 continue;
@@ -615,16 +650,9 @@ public class Program
         if (string.IsNullOrEmpty(text))
             return text;
 
-        // Remove markdown links [text](url) and keep only the text
         text = System.Text.RegularExpressions.Regex.Replace(text, @"\[([^\]]+)\]\([^\)]+\)", "$1");
-        
-        // Remove bold **text**
         text = System.Text.RegularExpressions.Regex.Replace(text, @"\*\*(.*?)\*\*", "$1");
-        
-        // Remove italic *text*
         text = System.Text.RegularExpressions.Regex.Replace(text, @"\*(.*?)\*", "$1");
-        
-        // Remove inline code `text`
         text = System.Text.RegularExpressions.Regex.Replace(text, @"`([^`]+)`", "$1");
         
         return text;
@@ -664,7 +692,7 @@ public class Program
                 continue;
             }
 
-            if (!string.IsNullOrWhiteSpace(trimmedLine) && !trimmedLine.StartsWith("#"))
+            if (!string.IsNullOrWhiteSpace(trimmedLine) && !trimmedLine.StartsWith("#") && !trimmedLine.Equals("[No content]"))
             {
                 contentBuilder.AppendLine(trimmedLine);
                 if (contentBuilder.Length > maxLength)
@@ -710,20 +738,25 @@ public class Program
 
             if (skippedMetadata)
             {
+                if (trimmedLine.Equals("[No content]", StringComparison.OrdinalIgnoreCase))
+                {
+                    htmlBuilder.AppendLine("<p class='no-content-notice'>⚠️ This post had no text content (e.g. a poll or media-only post).</p>");
+                    continue;
+                }
+
                 if (trimmedLine.StartsWith("!["))
                 {
                     var match = System.Text.RegularExpressions.Regex.Match(trimmedLine, @"!\[.*?\]\((.*?)\)");
                     if (match.Success)
                     {
                         var imagePath = match.Groups[1].Value;
-                        htmlBuilder.AppendLine($"<img src='../../{imagePath}' alt='Post Image' style='max-width: 100%; height: auto; border-radius: 8px; margin: 15px 0;'>");
+                        htmlBuilder.AppendLine($"<img src='../{imagePath}' alt='Post Image' style='max-width: 100%; height: auto; border-radius: 8px; margin: 15px 0;'>");
                     }
                     continue;
                 }
 
                 var htmlLine = trimmedLine;
 
-                // Convert markdown links [text](url) to HTML <a> tags
                 htmlLine = System.Text.RegularExpressions.Regex.Replace(htmlLine, @"\[([^\]]+)\]\(([^\)]+)\)", "<a href='$2' target='_blank' rel='noopener noreferrer'>$1</a>");
                 
                 htmlLine = System.Text.RegularExpressions.Regex.Replace(htmlLine, @"\*\*(.*?)\*\*", "<strong>$1</strong>");

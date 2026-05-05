@@ -23,7 +23,6 @@ public class SiteGeneratorService
 
         var template = File.ReadAllText(templatePath);
 
-        // Replace all {{variableName}} placeholders with actual values
         foreach (var variable in variables)
         {
             var placeholder = $"{{{{{variable.Key}}}}}";
@@ -37,7 +36,7 @@ public class SiteGeneratorService
     {
         var postsContent = new StringBuilder();
 
-        foreach (var post in posts.Take(config.MaxPostsInIndex))
+        foreach (var post in posts)
         {
             var postCardHtml = RenderTemplate("post-card.html", new Dictionary<string, string>
             {
@@ -79,6 +78,57 @@ public class SiteGeneratorService
             ["forwards"] = post.Forwards.ToString()
         });
     }
+
+    /// <summary>
+    /// Generates a standard XML sitemap for the static site.
+    /// </summary>
+    public string GenerateSitemap(StaticSiteConfig config, List<PostData> posts, string baseUrl, bool includeAboutPage = false)
+    {
+        var sb = new StringBuilder();
+        sb.AppendLine("<?xml version=\"1.0\" encoding=\"UTF-8\"?>");
+        sb.AppendLine("<urlset xmlns=\"http://www.sitemaps.org/schemas/sitemap/0.9\">");
+
+        sb.AppendLine("  <url>");
+        sb.AppendLine($"    <loc>{EscapeXml(baseUrl.TrimEnd('/'))}/</loc>");
+        sb.AppendLine($"    <lastmod>{DateTime.UtcNow:yyyy-MM-dd}</lastmod>");
+        sb.AppendLine("    <changefreq>daily</changefreq>");
+        sb.AppendLine("    <priority>1.0</priority>");
+        sb.AppendLine("  </url>");
+
+        if (includeAboutPage)
+        {
+            sb.AppendLine("  <url>");
+            sb.AppendLine($"    <loc>{EscapeXml(baseUrl.TrimEnd('/'))}/about.html</loc>");
+            sb.AppendLine($"    <lastmod>{DateTime.UtcNow:yyyy-MM-dd}</lastmod>");
+            sb.AppendLine("    <changefreq>monthly</changefreq>");
+            sb.AppendLine("    <priority>0.5</priority>");
+            sb.AppendLine("  </url>");
+        }
+
+        foreach (var post in posts)
+        {
+            var lastMod = post.Date == DateTime.MinValue ? DateTime.UtcNow : post.Date;
+            sb.AppendLine("  <url>");
+            sb.AppendLine($"    <loc>{EscapeXml(baseUrl.TrimEnd('/'))}/posts/{EscapeXml(post.Filename)}.html</loc>");
+            sb.AppendLine($"    <lastmod>{lastMod:yyyy-MM-dd}</lastmod>");
+            sb.AppendLine("    <changefreq>monthly</changefreq>");
+            sb.AppendLine("    <priority>0.8</priority>");
+            sb.AppendLine("  </url>");
+        }
+
+        sb.AppendLine("</urlset>");
+        return sb.ToString();
+    }
+
+    private static string EscapeXml(string text)
+    {
+        return text
+            .Replace("&", "&amp;")
+            .Replace("<", "&lt;")
+            .Replace(">", "&gt;")
+            .Replace("\"", "&quot;")
+            .Replace("'", "&apos;");
+    }
 }
 
 public class PostData
@@ -91,4 +141,5 @@ public class PostData
     public int Views { get; set; }
     public int Reactions { get; set; }
     public int Forwards { get; set; }
+    public bool IsNoContent { get; set; }
 }

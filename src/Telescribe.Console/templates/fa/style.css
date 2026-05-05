@@ -75,13 +75,12 @@ main {
     padding: 1.5rem; 
     border-radius: 12px; 
     box-shadow: 0 4px 20px rgba(0,0,0,0.1); 
-    transition: transform 0.3s ease, box-shadow 0.3s ease;
+    transition: box-shadow 0.3s ease;
     border: 1px solid #e9ecef;
 }
 
 .post-card:hover {
-    transform: translateY(-5px);
-    box-shadow: 0 8px 30px rgba(0,0,0,0.15);
+    box-shadow: 0 6px 20px rgba(0,0,0,0.12);
 }
 
 .post-card h2 { 
@@ -232,4 +231,15 @@ footer a:hover {
     .content {
         padding: 1.5rem;
     }
+}
+
+/* No-content notice (polls, media-only posts) */
+.no-content-notice {
+    background: #fff8e1;
+    border-left: 4px solid #f5a623;
+    color: #7a5c00;
+    padding: 1rem 1.2rem;
+    border-radius: 6px;
+    font-size: 0.95rem;
+    margin: 1rem 0;
 }

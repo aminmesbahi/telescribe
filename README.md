@@ -1,53 +1,53 @@
 # 🔭 Telescribe
 
-**Telescribe** is a flexible .NET console application that helps you manage content from your Telegram channel—whether you want to archive it, analyze engagement, enhance it with AI, publish it on a website, or push it to WordPress.
+**Telescribe** is a .NET console application for managing content from your Telegram channel. Export your posts, enrich them with AI, publish a static website, or push everything to WordPress.
 
-It’s built for creators who want more control over their Telegram content, turning messages into searchable, structured, and beautifully presented posts—across platforms.
+It is built for creators who want real control over their content rather than leaving it locked inside Telegram.
 
 ## Summary
 
-Telescribe helps you turn your Telegram channel into a powerful content hub. It exports posts (including media and metadata), enhances them using AI (titles, hashtags, summaries), and supports publishing workflows—from generating static websites to posting directly on WordPress. With built-in analytics and a flexible template system, Telescribe makes it easy to preserve, process, and present your content—on your terms.
+Telescribe turns your Telegram channel into a content hub. It exports posts with media and engagement metadata, optionally enhances them with AI (titles, hashtags, summaries), and supports several publishing workflows. You can generate a static website, sync posts to WordPress, or just keep a local searchable archive.
 
 ## Features
 
 ### 📥 **Telegram Export**
 - Export all posts from any Telegram channel you have access to
 - Download media files (images, videos, documents, audio)
-- Incremental updates - sync only new posts since last export
-- Collects channel posts with views, reactions, and forward counts
-- Markdown format export for easy processing
+- Incremental updates: sync only new posts since the last export
+- Captures views, reactions, and forward counts per post
+- Exports to Markdown files for easy processing
 
-### 🤖 **AI Content Processing** 
+### 🤖 **AI Content Processing**
 - **Multi-Provider Support**: OpenAI, DeepSeek, Ollama
-- **Smart Title Generation**: Automatically generate engaging titles for posts
-- **Hashtag Extraction**: Extract relevant hashtags from content
-- **Content Enhancement**: Process posts to improve readability and SEO
+- **Smart Title Generation**: Automatically create readable titles for posts
+- **Hashtag Extraction**: Pull relevant hashtags from content
+- **Content Enhancement**: Improve readability and SEO
 - **Batch Processing**: Handle large volumes of posts efficiently
 
 ### 🏗️ **Static Website Generation**
-- Create beautiful, responsive static websites from exported content
-- **Multi-Language Templates**: English (`en`) and Persian/Farsi (`fa`) support
-- **Customizable Design**: Modern, mobile-friendly templates
-- **SEO Optimized**: Clean URLs, meta tags, and structured content
-- **Fast Loading**: Static files for optimal performance
+- Generate a responsive static website from your exported posts
+- **Multi-Language Templates**: English (`en`) and Persian/Farsi (`fa`) built in, plus custom templates
+- **Search, Sort, and Pagination**: All client-side with no external dependencies
+- **Browser History Support**: Back and forward navigation works naturally
+- **SEO Ready**: Sitemap.xml, meta tags, and clean structure
+- **About Page**: Rendered from template if your template includes one
 
-### 📊 **Analytics & Reporting**
+### 📊 **Analytics and Reporting**
 - Comprehensive analytics reports with engagement metrics
-- **Template-Based Reports**: Beautiful HTML reports using template system
+- **Template-Based Reports**: HTML reports via the template system
 - **Key Metrics**: Views, reactions, forwards, and engagement analysis
-- **Visual Charts**: Modern dashboard-style analytics interface
-- **Export Summaries**: Detailed export statistics and performance data
+- **Visual Charts**: Dashboard-style analytics interface
 
 ### 🌐 **WordPress Integration**
 - Direct publishing to WordPress sites
 - **Media Upload**: Automatic media file uploads to WordPress
 - **Category Management**: Automatic category creation and assignment
 - **Post Mapping**: Track published posts to avoid duplicates
-- **Bulk Operations**: Efficiently handle large content volumes
 
 ### ⚙️ **Advanced Features**
-- **Template System**: Flexible template engine for customization
-- **Media Handling**: Support for all Telegram media types
+- **Template System**: Flexible `{{placeholder}}` engine, easy to extend
+- **Media Handling**: Copies all Telegram media into the generated site
+- **Empty Post Filtering**: Skip polls and media-only posts via config
 
 ## Requirements
 
@@ -59,7 +59,7 @@ Telescribe helps you turn your Telegram channel into a powerful content hub. It 
   - API ID
   - API Hash
   - Phone number (international format)
-- **Channel access** (must be member of target channel)
+- **Channel access** (you must be a member of the target channel)
 
 ### Optional Dependencies
 - **AI Services** (choose one):
@@ -69,31 +69,34 @@ Telescribe helps you turn your Telegram channel into a powerful content hub. It 
 - **WordPress site** with application password for publishing
 
 ## Screenshots
+
 ### Main Menu
 ![Menu](docs/screenshots/menu.png)
-### Exported Static site main page
-(Example)[https://techafternoon.mesbahi.net]
-![Menu](/docs/screenshots/static-index.png)
-### Exported Static site post page
-![Menu](/docs/screenshots/static-post.png)
-### Channel Statistics Reposrt
-![Menu](/docs/screenshots/reports.png)
+
+### Static Site Index Page
+![Static Index](/docs/screenshots/static-index.png)
+
+### Static Site Post Page
+![Static Post](/docs/screenshots/static-post.png)
+
+### Channel Analytics Report
+![Reports](/docs/screenshots/reports.png)
 
 ---
 
 ## How to Run
 
-### 🔨 Coming soon: As .NET tool!
+### 🔨 Coming soon: Available as a .NET tool!
 
-### 1. **Clone and Build**
+### 1. Clone and Build
 ```bash
 git clone https://github.com/aminmesbahi/telescribe.git
 cd telescribe/src
 dotnet build
 ```
 
-### 2. **Configuration Setup**
-Create `appsettings.json` in `Telescribe.Console` directory:
+### 2. Configuration Setup
+Copy `appsettings.example.json` to `appsettings.json` in `Telescribe.Console` and fill in your values:
 
 ```json
 {
@@ -125,90 +128,77 @@ Create `appsettings.json` in `Telescribe.Console` directory:
       "Subtitle": "Content from my Telegram channel",
       "TemplateName": "en",
       "MaxPostsInIndex": 50,
-      "OpenBrowserAfterGeneration": true
+      "OpenBrowserAfterGeneration": true,
+      "SkipEmptyContentPosts": false,
+      "SiteBaseUrl": "https://yoursite.com"
     }
   }
 }
 ```
 
-### 3. **Run the Application**
+### 3. Run the Application
 
-**Interactive Mode:**
+Interactive mode:
 ```bash
 cd Telescribe.Console
 dotnet run
 ```
 
-**Command Line Mode:**
+Command line shortcuts:
 ```bash
-# Generate static website
+# Generate static website directly
 dotnet run --project Telescribe.Console static
 
-# Generate analytics reports
+# Generate analytics reports directly
 dotnet run --project Telescribe.Console reports
 ```
 
-### 4. **Follow the Menu**
-1. **Export Channel Posts** - Initial full export
-2. **Update Existing Posts** - Incremental sync
-3. **AI Content Processing** - Coming Soon!
-4. **WordPress Integration** - Coming Soon!
-5. **Analytics Reports** - Generate insights
-6. **Static Website Builder** - Create website
+### 4. Menu Options
+1. **Export Channel Posts** - Download all posts from Telegram
+2. **Update Existing Posts** - Sync new posts since the last export
+3. **AI Content Processing** - Coming soon
+4. **WordPress Integration** - Coming soon
+5. **Analytics Reports** - Generate engagement insights
+6. **Static Website Builder** - Create a browsable static website
 7. **Exit Application**
+
+## Templates
+
+Templates live in `src/Telescribe.Console/templates/{name}/` and consist of plain HTML files with `{{placeholder}}` variables. The built-in templates are `en` (English) and `fa` (Persian/RTL). To create a custom template, copy an existing folder and adjust the HTML and CSS files.
 
 ## Roadmap
 
-### 🚧 **Version 1.0** (In Development)
-- [ ] **Finalize features**: Complete AI and Wordpress
-- [ ] **Stable Release**: Fix issues, make it stable
+### Version 1.0 (In Development)
+- [ ] Complete AI content processing
+- [ ] Complete WordPress integration
+- [ ] Stable release with bug fixes
 
-### 🚧 **Version 2.0** (Some day!)
-- [ ] **Real-time Sync**: Live monitoring and auto-sync
-- [ ] **Advanced AI Features**: Content categorization and summarization
-- [ ] **Database Support**: DB integration
-- [ ] **REST API**: Web API for programmatic access
-- [ ] **Web Dashboard**: Browser-based management interface
+### Version 2.0 (Planned)
+- [ ] Real-time sync and auto-update
+- [ ] Database support for large archives
+- [ ] REST API for programmatic access
+- [ ] Web dashboard
 
-### 🎯 **Version 3.0** (Maybe!)
-- [ ] **Multi-Channel Support**: Handle multiple channels simultaneously
-- [ ] **Content Scheduling**: Automated publishing workflows
-- [ ] **Analytics Dashboard**: Advanced metrics and insights
-- [ ] **Plugin System**: Extensible architecture for custom features
-- [ ] **Cloud Deployment**: Docker containers and cloud-ready deployment
-
-### 🔮 **Future Enhancements**
-- [ ] **Social Media Integration**: Twitter, LinkedIn, Facebook publishing
-- [ ] **Machine Learning**: Predictive analytics and content recommendations based on users' behaviour
+### Version 3.0 (Ideas)
+- [ ] Multi-channel support
+- [ ] Content scheduling
+- [ ] Plugin system for custom extensions
+- [ ] Docker and cloud deployment
 
 ## Known Issues
 
-### Current Limitations
-- **LLM Processing**: Currently limited and it is in development
-- **WordPress Upload**: Menu option exists but full integration is in development
-- **Template Customization**: Limited to predefined templates (extensibility planned)
-
-### Performance Considerations
-- **API Rate Limits**: Telegram API has built-in rate limiting
-- **AI Processing**: Can be slow for large batches (use processing delays)
-
-### Workarounds
-- **Large Channels**: Use incremental updates rather than full re-exports
-- **AI Timeouts**: Increase timeout settings for slow AI responses
-- **Template Issues**: Check template file permissions and paths
-- **Configuration Errors**: Validate JSON syntax and required fields
-
----
+- **LLM Processing**: Partially implemented, still in development
+- **WordPress Upload**: Menu option visible but full integration is in progress
+- **API Rate Limits**: Telegram API has built-in rate limiting; large channels may take a while
 
 ## License
 
-MIT License - see [LICENSE](LICENSE) file for details.
+MIT License. See [LICENSE](LICENSE) for details.
 
 ## Contributing
 
-Contributions are welcome! Please feel free to submit issues, feature requests, or pull requests.
+Contributions, issues, and feature requests are welcome. Feel free to open a pull request or file an issue on GitHub.
 
 ## Support
 
-For issues and questions:
 - **GitHub Issues**: [Create an issue](https://github.com/aminmesbahi/telescribe/issues)
