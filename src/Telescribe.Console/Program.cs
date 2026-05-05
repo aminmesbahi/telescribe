@@ -123,19 +123,6 @@ public class Program
                 return null;
             }
 
-            var llmConfig = new LlmConfig();
-            configuration.GetSection("TelegramConfig:LLM").Bind(llmConfig);
-            config.Llm = llmConfig;
-
-            var wordPressConfig = new WordPressConfig();
-            var wpSection = configuration.GetSection("TelegramConfig:WordPress");
-            wordPressConfig.SiteUrl = wpSection["BaseUrl"] ?? "";
-            wordPressConfig.Username = wpSection["Username"] ?? "";
-            wordPressConfig.ApplicationPassword = wpSection["Password"] ?? "";
-            wordPressConfig.CategoryName = wpSection["DefaultCategoryId"] ?? "1";
-            wordPressConfig.EnableUpload = bool.Parse(wpSection["EnableUploads"] ?? "false");
-            config.WordPress = wordPressConfig;
-
             return config;
         }
         catch (Exception ex)

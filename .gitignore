@@ -18,7 +18,7 @@ out/
 # Sensitive configuration files
 appsettings.json
 appsettings.*.json
-!appsettings.json.template
+!appsettings.example.json
 
 # Telegram session files (contain authentication tokens)
 *.session
