@@ -3,6 +3,7 @@ namespace Telescribe.Core.Models;
 public class UpdateSummary
 {
     public int NewPostsCount { get; set; }
+    public int RefreshedPostsCount { get; set; }
     public DateTime UpdateTime { get; set; }
     public DateTime DateRangeFrom { get; set; }
     public DateTime DateRangeTo { get; set; }

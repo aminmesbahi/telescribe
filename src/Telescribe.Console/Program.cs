@@ -223,12 +223,23 @@ public class Program
 
             if (updateSummary.NewPostsCount == 0)
             {
-                WriteLine("✅ No new posts found. Export is already up to date!");
+                if (updateSummary.RefreshedPostsCount == 0)
+                {
+                    WriteLine("✅ No new posts found. Export is already up to date!");
+                }
+                else
+                {
+                    WriteLine($"✅ No new posts found. Refreshed metadata/content for {updateSummary.RefreshedPostsCount} existing posts.");
+                }
                 return;
             }
 
             WriteLine($"🎉 Update completed successfully!");
             WriteLine($"   📊 New posts exported: {updateSummary.NewPostsCount}");
+            if (updateSummary.RefreshedPostsCount > 0)
+            {
+                WriteLine($"   🔄 Existing posts refreshed: {updateSummary.RefreshedPostsCount}");
+            }
             WriteLine($"   📅 Date range: {updateSummary.DateRangeFrom:yyyy-MM-dd} to {updateSummary.DateRangeTo:yyyy-MM-dd}");
             WriteLine($"   📁 Export path: {updateSummary.ExportPath}");
 
@@ -639,6 +650,31 @@ public class Program
             return;
         }
 
+        var telegramService = TelegramServiceFactory.CreateService(config);
+        UpdateSummary? exportUpdateSummary = null;
+
+        var lastExportSummary = await telegramService.GetLastExportSummaryAsync();
+        if (lastExportSummary?.Posts.Any() == true)
+        {
+            var lastPostDate = lastExportSummary.Posts.Max(p => p.CreatedAt);
+            WriteLine($"📡 Syncing exports from Telegram before rebuilding site (last export: {lastPostDate:yyyy-MM-dd HH:mm:ss} UTC)...");
+
+            var authenticated = await telegramService.AuthenticateAsync();
+            if (!authenticated)
+            {
+                WriteLine("⚠️  Telegram authentication failed. Continuing with existing exported markdown files.");
+            }
+            else
+            {
+                exportUpdateSummary = await telegramService.UpdateExistingExportsAsync(lastPostDate);
+                if (exportUpdateSummary.Status != "Completed")
+                {
+                    WriteLine($"⚠️  Export sync failed: {exportUpdateSummary.ErrorMessage}");
+                    WriteLine("   Continuing with local exported markdown files.");
+                }
+            }
+        }
+
         var siteGenerator = new SiteGeneratorService(templatesPath);
         var assetsSource = Path.Combine(templatesPath, "style.css");
         var cssContent = File.Exists(assetsSource) ? await File.ReadAllTextAsync(assetsSource) : "";
@@ -739,6 +775,10 @@ public class Program
 
         WriteLine($"✅ Site updated successfully!");
         WriteLine($"   📂 Site folder: {siteDir}");
+        if (exportUpdateSummary != null && exportUpdateSummary.Status == "Completed")
+        {
+            WriteLine($"   📡 Export sync: {exportUpdateSummary.NewPostsCount} new, {exportUpdateSummary.RefreshedPostsCount} refreshed");
+        }
         WriteLine($"   🆕 New posts added: {newPostCount}");
         WriteLine($"   🔄 Posts refreshed (metadata updated): {updatedPostCount}");
         if (newMediaCount > 0)

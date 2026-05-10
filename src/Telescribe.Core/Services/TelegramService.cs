@@ -694,6 +694,11 @@ public class TelegramService : IDisposable
 
         try
         {
+            var existingSummary = await GetLastExportSummaryAsync();
+            var existingPostIds = existingSummary?.Posts
+                .Select(p => p.PostId)
+                .ToHashSet() ?? [];
+
             Messages_Dialogs dialogs;
             using (new ConsoleOutputSuppressor())
             {
@@ -719,6 +724,7 @@ public class TelegramService : IDisposable
             };
 
             var newPosts = new List<TelegramPost>();
+            var refreshedPosts = new List<TelegramPost>();
             var offsetId = 0;
             var batchSize = 100;
             var maxBatches = 10;
@@ -743,7 +749,7 @@ public class TelegramService : IDisposable
                 Console.WriteLine($"Retrieved batch {batchesProcessed + 1}: {messages.Messages.Length} messages");
 
                 var batchNewPosts = 0;
-                var foundOldPost = false;
+                var batchRefreshedPosts = 0;
 
                 foreach (var messageBase in messages.Messages)
                 {
@@ -751,59 +757,54 @@ public class TelegramService : IDisposable
                     {
                         var messageDate = message.Date;
 
-                        if (messageDate <= lastExportDate)
+                        var isNewPost = messageDate > lastExportDate && !existingPostIds.Contains(message.id);
+                        var isExistingExport = existingPostIds.Contains(message.id);
+
+                        if (!isNewPost && !isExistingExport)
                         {
-                            foundOldPost = true;
-                            break;
+                            offsetId = message.id;
+                            continue;
                         }
 
                         var post = await ConvertToTelegramPostAsync(message);
                         if (post != null)
                         {
-                            newPosts.Add(post);
                             await SavePostAsMarkdownAsync(post);
-                            batchNewPosts++;
 
-                            updateSummary.NewPosts.Add(new PostSummary
+                            if (isNewPost)
                             {
-                                PostId = post.Id,
-                                CreatedAt = post.CreatedAt,
-                                IsEdited = post.IsEdited,
-                                EditedAt = post.EditedAt,
-                                Views = post.Views,
-                                Reactions = post.Reactions,
-                                TotalForwards = post.TotalForwards,
-                                PublicForwards = post.PublicForwards,
-                                PrivateForwards = post.PrivateForwards,
-                                ContentPreview = GetContentPreview(post.Content)
-                            });
+                                newPosts.Add(post);
+                                updateSummary.NewPosts.Add(CreatePostSummary(post));
+                                batchNewPosts++;
+                                existingPostIds.Add(post.Id);
+                            }
+                            else if (isExistingExport)
+                            {
+                                refreshedPosts.Add(post);
+                                batchRefreshedPosts++;
+                            }
                         }
 
                         offsetId = message.id;
                     }
                 }
 
-                Console.WriteLine($"Found {batchNewPosts} new posts in this batch (Total new: {newPosts.Count})");
+                Console.WriteLine($"Found {batchNewPosts} new posts and refreshed {batchRefreshedPosts} existing posts in this batch");
                 batchesProcessed++;
-
-                if (foundOldPost)
-                {
-                    Console.WriteLine("Reached previously exported content. Stopping...");
-                    break;
-                }
 
                 await Task.Delay(100);
             }
 
             updateSummary.NewPostsCount = newPosts.Count;
+            updateSummary.RefreshedPostsCount = refreshedPosts.Count;
             updateSummary.DateRangeTo = newPosts.Any() ? newPosts.Max(p => p.CreatedAt) : lastExportDate;
             updateSummary.Status = "Completed";
 
-            Console.WriteLine($"Update completed: {newPosts.Count} new posts exported");
+            Console.WriteLine($"Update completed: {newPosts.Count} new posts exported, {refreshedPosts.Count} existing posts refreshed");
 
-            if (newPosts.Any())
+            if (newPosts.Any() || refreshedPosts.Any())
             {
-                await UpdateExportSummaryFileAsync(updateSummary);
+                await UpdateExportSummaryFileAsync(updateSummary, refreshedPosts);
             }
 
             return updateSummary;
@@ -817,7 +818,24 @@ public class TelegramService : IDisposable
         }
     }
 
-    private async Task UpdateExportSummaryFileAsync(UpdateSummary updateSummary)
+    private PostSummary CreatePostSummary(TelegramPost post)
+    {
+        return new PostSummary
+        {
+            PostId = post.Id,
+            CreatedAt = post.CreatedAt,
+            IsEdited = post.IsEdited,
+            EditedAt = post.EditedAt,
+            Views = post.Views,
+            Reactions = post.Reactions,
+            TotalForwards = post.TotalForwards,
+            PublicForwards = post.PublicForwards,
+            PrivateForwards = post.PrivateForwards,
+            ContentPreview = GetContentPreview(post.Content)
+        };
+    }
+
+    private async Task UpdateExportSummaryFileAsync(UpdateSummary updateSummary, IReadOnlyCollection<TelegramPost> refreshedPosts)
     {
         try
         {
@@ -840,7 +858,20 @@ public class TelegramService : IDisposable
                 existingSummary.TotalPosts += updateSummary.NewPostsCount;
                 existingSummary.ExportTime = updateSummary.UpdateTime;
                 existingSummary.MediaFilesCount += updateSummary.MediaFilesCount;
-                existingSummary.Posts.AddRange(updateSummary.NewPosts);
+                foreach (var newPostSummary in updateSummary.NewPosts)
+                {
+                    UpsertPostSummary(existingSummary.Posts, newPostSummary);
+                }
+
+                foreach (var refreshedPost in refreshedPosts)
+                {
+                    UpsertPostSummary(existingSummary.Posts, CreatePostSummary(refreshedPost));
+                }
+
+                existingSummary.TotalPosts = existingSummary.Posts
+                    .Select(p => p.PostId)
+                    .Distinct()
+                    .Count();
 
                 var serializeOptions = new JsonSerializerOptions
                 {
@@ -857,6 +888,26 @@ public class TelegramService : IDisposable
         {
             Console.WriteLine($"Warning: Could not update export summary file: {ex.Message}");
         }
+    }
+
+    private static void UpsertPostSummary(List<PostSummary> posts, PostSummary updatedPost)
+    {
+        var existingPost = posts.FirstOrDefault(p => p.PostId == updatedPost.PostId);
+        if (existingPost == null)
+        {
+            posts.Add(updatedPost);
+            return;
+        }
+
+        existingPost.CreatedAt = updatedPost.CreatedAt;
+        existingPost.IsEdited = updatedPost.IsEdited;
+        existingPost.EditedAt = updatedPost.EditedAt;
+        existingPost.Views = updatedPost.Views;
+        existingPost.Reactions = updatedPost.Reactions;
+        existingPost.TotalForwards = updatedPost.TotalForwards;
+        existingPost.PublicForwards = updatedPost.PublicForwards;
+        existingPost.PrivateForwards = updatedPost.PrivateForwards;
+        existingPost.ContentPreview = updatedPost.ContentPreview;
     }
 
     public void Dispose()
