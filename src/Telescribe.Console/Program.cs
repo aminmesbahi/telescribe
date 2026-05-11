@@ -759,15 +759,26 @@ public class Program
                 ["subtitle"]    = config.StaticSite.Subtitle,
                 ["headerIcon"]  = config.StaticSite.HeaderIcon,
                 ["description"] = config.StaticSite.Description,
+                ["canonicalTag"] = string.IsNullOrWhiteSpace(config.StaticSite.SiteBaseUrl)
+                    ? string.Empty
+                    : $"<link rel=\"canonical\" href=\"{config.StaticSite.SiteBaseUrl.Trim().TrimEnd('/')}/about.html\">",
             }), cssContent);
             await File.WriteAllTextAsync(Path.Combine(siteDir, "about.html"), aboutHtml);
         }
 
-        var baseUrl = !string.IsNullOrWhiteSpace(config.StaticSite.SiteBaseUrl)
-            ? config.StaticSite.SiteBaseUrl
-            : "https://localhost";
-        var sitemapXml = siteGenerator.GenerateSitemap(config.StaticSite, sortedPosts, baseUrl, File.Exists(aboutTemplatePath));
-        await File.WriteAllTextAsync(Path.Combine(siteDir, "sitemap.xml"), sitemapXml);
+        if (!string.IsNullOrWhiteSpace(config.StaticSite.SiteBaseUrl))
+        {
+            var sitemapXml = siteGenerator.GenerateSitemap(
+                config.StaticSite,
+                sortedPosts,
+                config.StaticSite.SiteBaseUrl,
+                File.Exists(aboutTemplatePath));
+            await File.WriteAllTextAsync(Path.Combine(siteDir, "sitemap.xml"), sitemapXml);
+        }
+        else
+        {
+            WriteLine("⚠️  StaticSite:SiteBaseUrl is not configured; canonical tags and sitemap entries will be skipped.");
+        }
 
         // Update assets/style.css as well
         if (File.Exists(assetsSource))
