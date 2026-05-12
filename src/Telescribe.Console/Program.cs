@@ -481,6 +481,7 @@ public class Program
 
         var assetsSource = Path.Combine(templatesPath, "style.css");
         var cssContent = File.Exists(assetsSource) ? await File.ReadAllTextAsync(assetsSource) : "";
+        var faviconSource = Path.Combine(templatesPath, "favicon.svg");
         if (File.Exists(assetsSource))
         {
             var assetsTarget = Path.Combine(siteDir, "assets", "style.css");
@@ -549,12 +550,12 @@ public class Program
         {
             var postHtml = InlineCss(siteGenerator.RenderPostPage(config.StaticSite, post), cssContent);
             var postPath = Path.Combine(siteDir, "posts", $"{post.Filename}.html");
-            await File.WriteAllTextAsync(postPath, postHtml);
+            await WriteUtf8FileAsync(postPath, postHtml);
         }
 
         var indexHtml = InlineCss(siteGenerator.RenderIndexPage(config.StaticSite, sortedPosts, DateTime.Now), cssContent);
         var indexPath = Path.Combine(siteDir, "index.html");
-        await File.WriteAllTextAsync(indexPath, indexHtml);
+        await WriteUtf8FileAsync(indexPath, indexHtml);
 
         var aboutTemplatePath = Path.Combine(templatesPath, "about.html");
         bool hasAboutPage = File.Exists(aboutTemplatePath);
@@ -678,6 +679,7 @@ public class Program
         var siteGenerator = new SiteGeneratorService(templatesPath);
         var assetsSource = Path.Combine(templatesPath, "style.css");
         var cssContent = File.Exists(assetsSource) ? await File.ReadAllTextAsync(assetsSource) : "";
+        var faviconSource = Path.Combine(templatesPath, "favicon.svg");
 
         // Sync new media files (skip existing ones)
         var mediaSource = Path.Combine(exportDir, "media");
@@ -742,26 +744,38 @@ public class Program
             var postPath = Path.Combine(postsOutDir, $"{post.Filename}.html");
             bool isNew = !File.Exists(postPath);
             var postHtml = InlineCss(siteGenerator.RenderPostPage(config.StaticSite, post), cssContent);
-            await File.WriteAllTextAsync(postPath, postHtml);
+            await WriteUtf8FileAsync(postPath, postHtml);
             if (isNew) newPostCount++; else updatedPostCount++;
         }
 
         // Regenerate index and sitemap
         var indexHtml = InlineCss(siteGenerator.RenderIndexPage(config.StaticSite, sortedPosts, DateTime.Now), cssContent);
-        await File.WriteAllTextAsync(Path.Combine(siteDir, "index.html"), indexHtml);
+        await WriteUtf8FileAsync(Path.Combine(siteDir, "index.html"), indexHtml);
 
         var aboutTemplatePath = Path.Combine(templatesPath, "about.html");
         if (File.Exists(aboutTemplatePath))
         {
             var aboutHtml = InlineCss(siteGenerator.RenderTemplate("about.html", new Dictionary<string, string>
             {
+                ["pageTitle"]   = $"درباره {config.StaticSite.SiteTitle}",
                 ["siteTitle"]   = config.StaticSite.SiteTitle,
                 ["subtitle"]    = config.StaticSite.Subtitle,
                 ["headerIcon"]  = config.StaticSite.HeaderIcon,
                 ["description"] = config.StaticSite.Description,
+                ["faviconPath"] = "favicon.svg",
+                ["canonicalUrl"] = string.IsNullOrWhiteSpace(config.StaticSite.SiteBaseUrl)
+                    ? string.Empty
+                    : $"{config.StaticSite.SiteBaseUrl.Trim().TrimEnd('/')}/about.html",
                 ["canonicalTag"] = string.IsNullOrWhiteSpace(config.StaticSite.SiteBaseUrl)
                     ? string.Empty
                     : $"<link rel=\"canonical\" href=\"{config.StaticSite.SiteBaseUrl.Trim().TrimEnd('/')}/about.html\">",
+                ["jsonSiteTitle"] = System.Text.Json.JsonSerializer.Serialize(config.StaticSite.SiteTitle),
+                ["jsonSubtitle"] = System.Text.Json.JsonSerializer.Serialize(config.StaticSite.Subtitle),
+                ["jsonDescription"] = System.Text.Json.JsonSerializer.Serialize(config.StaticSite.Description),
+                ["jsonCanonicalUrl"] = System.Text.Json.JsonSerializer.Serialize(
+                    string.IsNullOrWhiteSpace(config.StaticSite.SiteBaseUrl)
+                        ? string.Empty
+                        : $"{config.StaticSite.SiteBaseUrl.Trim().TrimEnd('/')}/about.html"),
             }), cssContent);
             await File.WriteAllTextAsync(Path.Combine(siteDir, "about.html"), aboutHtml);
         }
@@ -774,6 +788,10 @@ public class Program
                 config.StaticSite.SiteBaseUrl,
                 File.Exists(aboutTemplatePath));
             await File.WriteAllTextAsync(Path.Combine(siteDir, "sitemap.xml"), sitemapXml);
+
+            var normalizedBaseUrl = config.StaticSite.SiteBaseUrl.Trim().TrimEnd('/');
+            var robotsTxt = $"User-agent: *{Environment.NewLine}Allow: /{Environment.NewLine}{Environment.NewLine}Sitemap: {normalizedBaseUrl}/sitemap.xml{Environment.NewLine}";
+            await File.WriteAllTextAsync(Path.Combine(siteDir, "robots.txt"), robotsTxt);
         }
         else
         {
@@ -783,6 +801,8 @@ public class Program
         // Update assets/style.css as well
         if (File.Exists(assetsSource))
             File.Copy(assetsSource, Path.Combine(siteDir, "assets", "style.css"), overwrite: true);
+        if (File.Exists(faviconSource))
+            File.Copy(faviconSource, Path.Combine(siteDir, "favicon.svg"), overwrite: true);
 
         WriteLine($"✅ Site updated successfully!");
         WriteLine($"   📂 Site folder: {siteDir}");
@@ -879,7 +899,7 @@ public class Program
         return text;
     }
 
-    static string ExtractPreview(string content, int maxLength = 150)
+    static string ExtractPreview(string content, int maxLength = 130)
     {
         var lines = content.Split('\n');
         var contentBuilder = new StringBuilder();
@@ -1000,7 +1020,7 @@ public class Program
                 if (match.Success)
                 {
                     var imagePath = match.Groups[1].Value;
-                    htmlBuilder.AppendLine($"<img src='../{imagePath}' alt='Post Image' style='max-width: 100%; height: auto; border-radius: 8px; margin: 15px 0;'>");
+                    htmlBuilder.AppendLine($"<img src='../{imagePath}' alt='Post Image' loading='lazy' decoding='async' style='max-width: 100%; height: auto; border-radius: 8px; margin: 15px 0;'>");
                 }
                 continue;
             }
@@ -1069,6 +1089,48 @@ public class Program
     {
         var dir = new DirectoryInfo(dirPath);
         return dir.GetFiles("*", SearchOption.AllDirectories).Sum(file => file.Length);
+    }
+
+    static Task WriteUtf8FileAsync(string path, string content)
+    {
+        return File.WriteAllTextAsync(path, SanitizeUnicode(content), new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
+    }
+
+    static string SanitizeUnicode(string content)
+    {
+        if (string.IsNullOrEmpty(content))
+            return content;
+
+        var builder = new StringBuilder(content.Length);
+
+        for (var index = 0; index < content.Length; index++)
+        {
+            var current = content[index];
+
+            if (char.IsHighSurrogate(current))
+            {
+                if (index + 1 < content.Length && char.IsLowSurrogate(content[index + 1]))
+                {
+                    builder.Append(current);
+                    builder.Append(content[index + 1]);
+                    index++;
+                    continue;
+                }
+
+                builder.Append('\uFFFD');
+                continue;
+            }
+
+            if (char.IsLowSurrogate(current))
+            {
+                builder.Append('\uFFFD');
+                continue;
+            }
+
+            builder.Append(current);
+        }
+
+        return builder.ToString();
     }
 
 }

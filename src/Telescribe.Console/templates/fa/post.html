@@ -1,15 +1,46 @@
 <!DOCTYPE html>
 <html lang="fa" dir="auto">
 <head>
-    <title>{{title}} - {{siteTitle}}</title>
+    <title>{{pageTitle}}</title>
     <meta charset='utf-8'>
     <meta name='viewport' content='width=device-width, initial-scale=1'>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Vazirmatn:wght@100..900&display=swap" rel="stylesheet">
     <link rel='stylesheet' href='../assets/style.css'>
+    <link rel='icon' type='image/svg+xml' href='{{faviconPath}}'>
     <meta name="description" content="{{preview}}">
     {{canonicalTag}}
+    <script type="application/ld+json">
+        {
+            "@context": "https://schema.org",
+            "@graph": [
+                {
+                    "@type": "BlogPosting",
+                    "headline": {{jsonTitle}},
+                    "description": {{jsonPreview}},
+                    "datePublished": {{jsonDate}},
+                    "dateModified": {{jsonDate}},
+                    "url": {{jsonCanonicalUrl}},
+                    "mainEntityOfPage": {
+                        "@type": "WebPage",
+                        "@id": {{jsonCanonicalUrl}}
+                    },
+                    "author": {
+                        "@type": "Person",
+                        "name": "REPLACE_WITH_AUTHOR_NAME",
+                        "url": "https://example.com"
+                    },
+                    "publisher": {
+                        "@type": "Organization",
+                        "name": "REPLACE_WITH_PUBLISHER_NAME",
+                        "url": "https://example.com"
+                    },
+                    "inLanguage": "fa"
+                }
+            ]
+        }
+    </script>
 </head>
 <body>
     <header>

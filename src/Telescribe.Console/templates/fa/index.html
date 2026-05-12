@@ -1,15 +1,39 @@
 <!DOCTYPE html>
 <html lang="fa" dir="rtl">
 <head>
-    <title>{{siteTitle}} - {{subtitle}}</title>
+    <title>{{pageTitle}}</title>
     <meta charset='utf-8'>
     <meta name='viewport' content='width=device-width, initial-scale=1'>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Vazirmatn:wght@100..900&display=swap" rel="stylesheet">
     <link rel='stylesheet' href='assets/style.css'>
+    <link rel='icon' type='image/svg+xml' href='{{faviconPath}}'>
     <meta name="description" content="{{description}}">
     {{canonicalTag}}
+    <script type="application/ld+json">
+        {
+            "@context": "https://schema.org",
+            "@graph": [
+                {
+                    "@type": "WebSite",
+                    "url": {{jsonCanonicalUrl}},
+                    "name": {{jsonSiteTitle}},
+                    "description": {{jsonDescription}},
+                    "inLanguage": "fa"
+                },
+                {
+                    "@type": "Organization",
+                    "name": "REPLACE_WITH_OWNER_OR_ORGANIZATION_NAME",
+                    "url": "https://example.com",
+                    "sameAs": [
+                        "https://example.com/twitter",
+                        "https://example.com/linkedin"
+                    ]
+                }
+            ]
+        }
+    </script>
     <style>
         .controls-bar { display:flex; flex-wrap:wrap; gap:1rem; align-items:center; margin-bottom:1.5rem; padding:1rem; background:#fff; border-radius:8px; box-shadow:0 2px 8px rgba(0,0,0,.08); }
         .search-box { flex:1; min-width:200px; padding:.6rem 1rem; border:1px solid #ddd; border-radius:6px; font-family:inherit; font-size:1rem; }

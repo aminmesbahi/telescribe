@@ -1,4 +1,5 @@
 using System.Text;
+using System.Text.Json;
 using Telescribe.Core.Models;
 
 namespace Telescribe.Core.Services;
@@ -35,6 +36,7 @@ public class SiteGeneratorService
     public string RenderIndexPage(StaticSiteConfig config, List<PostData> posts, DateTime generatedDate)
     {
         var postsContent = new StringBuilder();
+        var canonicalUrl = BuildCanonicalUrl(NormalizeBaseUrl(config.SiteBaseUrl), string.Empty);
 
         foreach (var post in posts)
         {
@@ -54,11 +56,18 @@ public class SiteGeneratorService
 
         return RenderTemplate("index.html", new Dictionary<string, string>
         {
+            ["pageTitle"] = BuildPageTitle(config.SiteTitle, config.Subtitle),
             ["siteTitle"] = config.SiteTitle,
             ["subtitle"] = config.Subtitle,
             ["headerIcon"] = config.HeaderIcon,
             ["description"] = config.Description,
+            ["canonicalUrl"] = canonicalUrl,
             ["canonicalTag"] = BuildCanonicalTag(config.SiteBaseUrl, string.Empty),
+            ["faviconPath"] = "favicon.svg",
+            ["jsonSiteTitle"] = JsonString(config.SiteTitle),
+            ["jsonSubtitle"] = JsonString(config.Subtitle),
+            ["jsonDescription"] = JsonString(config.Description),
+            ["jsonCanonicalUrl"] = JsonString(canonicalUrl),
             ["postsContent"] = postsContent.ToString(),
             ["generatedDate"] = generatedDate.ToString("yyyy-MM-dd HH:mm:ss"),
             ["totalPosts"] = posts.Count.ToString()
@@ -67,13 +76,22 @@ public class SiteGeneratorService
 
     public string RenderPostPage(StaticSiteConfig config, PostData post)
     {
+        var canonicalUrl = BuildCanonicalUrl(NormalizeBaseUrl(config.SiteBaseUrl), $"posts/{post.Filename}.html");
         return RenderTemplate("post.html", new Dictionary<string, string>
         {
+            ["pageTitle"] = BuildPageTitle(post.Title, config.SiteTitle),
             ["siteTitle"] = config.SiteTitle,
             ["title"] = post.Title,
             ["date"] = post.Date.ToString("yyyy-MM-dd HH:mm:ss"),
             ["preview"] = post.Preview,
+            ["canonicalUrl"] = canonicalUrl,
             ["canonicalTag"] = BuildCanonicalTag(config.SiteBaseUrl, $"posts/{post.Filename}.html"),
+            ["faviconPath"] = "../favicon.svg",
+            ["jsonSiteTitle"] = JsonString(config.SiteTitle),
+            ["jsonTitle"] = JsonString(post.Title),
+            ["jsonDate"] = JsonString(post.Date.ToString("yyyy-MM-ddTHH:mm:ssK")),
+            ["jsonPreview"] = JsonString(post.Preview),
+            ["jsonCanonicalUrl"] = JsonString(canonicalUrl),
             ["content"] = post.Content,
             ["views"] = post.Views.ToString(),
             ["reactions"] = post.Reactions.ToString(),
@@ -164,6 +182,27 @@ public class SiteGeneratorService
         return string.IsNullOrWhiteSpace(baseUrl)
             ? string.Empty
             : baseUrl.Trim().TrimEnd('/');
+    }
+
+    private static string JsonString(string? value)
+    {
+        return JsonSerializer.Serialize(value ?? string.Empty);
+    }
+
+    private static string BuildPageTitle(string primaryText, string secondaryText, int maxLength = 60)
+    {
+        var combined = $"{primaryText} - {secondaryText}";
+        if (combined.Length <= maxLength)
+        {
+            return combined;
+        }
+
+        if (primaryText.Length <= maxLength)
+        {
+            return primaryText;
+        }
+
+        return primaryText.Substring(0, Math.Max(0, maxLength - 1)).TrimEnd() + "…";
     }
 }
 
