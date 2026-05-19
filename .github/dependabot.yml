@@ -1,0 +1,21 @@
+version: 2
+updates:
+  - package-ecosystem: "nuget"
+    directory: "/src/Telescribe.Core"
+    schedule:
+      interval: "weekly"
+
+  - package-ecosystem: "nuget"
+    directory: "/src/Telescribe.Console"
+    schedule:
+      interval: "weekly"
+
+  - package-ecosystem: "docker"
+    directory: "/src/Telescribe.Console"
+    schedule:
+      interval: "weekly"
+
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"

@@ -141,6 +141,22 @@ public class SiteGeneratorService
         return sb.ToString();
     }
 
+    public string GenerateRobotsTxt(string? baseUrl)
+    {
+        var normalizedBaseUrl = NormalizeBaseUrl(baseUrl);
+        if (string.IsNullOrWhiteSpace(normalizedBaseUrl))
+        {
+            return string.Empty;
+        }
+
+        var sb = new StringBuilder();
+        sb.AppendLine("User-agent: *");
+        sb.AppendLine("Allow: /");
+        sb.AppendLine();
+        sb.AppendLine($"Sitemap: {BuildCanonicalUrl(normalizedBaseUrl, "sitemap.xml")}");
+        return sb.ToString();
+    }
+
     private static string EscapeXml(string text)
     {
         return text

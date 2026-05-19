@@ -1,5 +1,8 @@
 # 🔭 Telescribe
 
+[![Code Quality](https://img.shields.io/badge/code%20quality-Qodana-orange?logo=jetbrains&logoColor=white)](https://qodana.cloud)
+[![Security Policy](https://img.shields.io/badge/security-policy-blue?logo=github&logoColor=white)](https://github.com/aminmesbahi/telescribe/blob/main/SECURITY.md)
+
 **Telescribe** is a .NET console application for managing content from your Telegram channel. Export your posts, enrich them with AI, publish a static website, or push everything to WordPress.
 
 It is built for creators who want real control over their content rather than leaving it locked inside Telegram.

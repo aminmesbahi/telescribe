@@ -572,17 +572,30 @@ public class Program
             WriteLine("✅ Generated about.html");
         }
 
-        var baseUrl = !string.IsNullOrWhiteSpace(config.StaticSite.SiteBaseUrl)
-            ? config.StaticSite.SiteBaseUrl
-            : "https://localhost";
-        var sitemapXml = siteGenerator.GenerateSitemap(config.StaticSite, sortedPosts, baseUrl, hasAboutPage);
-        var sitemapPath = Path.Combine(siteDir, "sitemap.xml");
-        await File.WriteAllTextAsync(sitemapPath, sitemapXml);
+        string? sitemapPath = null;
+        string? robotsPath = null;
+        if (!string.IsNullOrWhiteSpace(config.StaticSite.SiteBaseUrl))
+        {
+            var sitemapXml = siteGenerator.GenerateSitemap(config.StaticSite, sortedPosts, config.StaticSite.SiteBaseUrl, hasAboutPage);
+            sitemapPath = Path.Combine(siteDir, "sitemap.xml");
+            await File.WriteAllTextAsync(sitemapPath, sitemapXml);
+
+            var robotsTxt = siteGenerator.GenerateRobotsTxt(config.StaticSite.SiteBaseUrl);
+            robotsPath = Path.Combine(siteDir, "robots.txt");
+            await File.WriteAllTextAsync(robotsPath, robotsTxt);
+        }
+        else
+        {
+            WriteLine("⚠️  StaticSite:SiteBaseUrl is not configured; canonical tags, sitemap.xml, and robots.txt will be skipped.");
+        }
 
         WriteLine($"✅ Static website generated successfully!");
         WriteLine($"   🌐 Site saved to: {siteDir}");
         WriteLine($"   📌 {sortedPosts.Count} posts generated");
-        WriteLine($"   🗺️  Sitemap: {sitemapPath}");
+        if (sitemapPath is not null)
+            WriteLine($"   🗺️  Sitemap: {sitemapPath}");
+        if (robotsPath is not null)
+            WriteLine($"   🤖 Robots: {robotsPath}");
         WriteLine($"   📌 Template: {config.StaticSite.TemplateName}");
 
         if (config.StaticSite.OpenBrowserAfterGeneration)
@@ -789,13 +802,12 @@ public class Program
                 File.Exists(aboutTemplatePath));
             await File.WriteAllTextAsync(Path.Combine(siteDir, "sitemap.xml"), sitemapXml);
 
-            var normalizedBaseUrl = config.StaticSite.SiteBaseUrl.Trim().TrimEnd('/');
-            var robotsTxt = $"User-agent: *{Environment.NewLine}Allow: /{Environment.NewLine}{Environment.NewLine}Sitemap: {normalizedBaseUrl}/sitemap.xml{Environment.NewLine}";
+            var robotsTxt = siteGenerator.GenerateRobotsTxt(config.StaticSite.SiteBaseUrl);
             await File.WriteAllTextAsync(Path.Combine(siteDir, "robots.txt"), robotsTxt);
         }
         else
         {
-            WriteLine("⚠️  StaticSite:SiteBaseUrl is not configured; canonical tags and sitemap entries will be skipped.");
+            WriteLine("⚠️  StaticSite:SiteBaseUrl is not configured; canonical tags, sitemap.xml, and robots.txt will be skipped.");
         }
 
         // Update assets/style.css as well
