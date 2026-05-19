@@ -22,6 +22,7 @@ public class ConsoleOutputSuppressor : IDisposable
     {
         Console.SetOut(_originalOut);
         Console.SetError(_originalError);
+        GC.SuppressFinalize(this);
     }
 }
 
@@ -913,5 +914,6 @@ public class TelegramService : IDisposable
     public void Dispose()
     {
         _client?.Dispose();
+        GC.SuppressFinalize(this);
     }
 }

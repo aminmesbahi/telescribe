@@ -13,6 +13,16 @@ public class LlmService : ILlmService, IDisposable
     private Kernel? _kernel;
     private readonly HttpClient _httpClient;
 
+    private static readonly Regex ImageMarkdownRegex = new(@"!\[([^\]]*)\]\([^)]+\)", RegexOptions.Compiled);
+    private static readonly Regex LinkMarkdownRegex = new(@"\[([^\]]+)\]\([^)]+\)", RegexOptions.Compiled);
+    private static readonly Regex BoldMarkdownRegex = new(@"\*\*([^*]+)\*\*", RegexOptions.Compiled);
+    private static readonly Regex ItalicMarkdownRegex = new(@"\*([^*]+)\*", RegexOptions.Compiled);
+    private static readonly Regex HeadingMarkdownRegex = new(@"#{1,6}\s*", RegexOptions.Compiled);
+    private static readonly Regex WhitespaceRegex = new(@"\s+", RegexOptions.Compiled);
+    private static readonly Regex TitlePrefixRegex = new(@"^(Title:\s*|Post:\s*)", RegexOptions.Compiled | RegexOptions.IgnoreCase);
+    private static readonly Regex HashtagInTitleRegex = new(@"#\w+", RegexOptions.Compiled);
+    private static readonly Regex ValidHashtagRegex = new(@"^[a-zA-Z0-9_]+$", RegexOptions.Compiled);
+
     public LlmService(LlmConfig config)
     {
         _config = config ?? throw new ArgumentNullException(nameof(config));
@@ -45,6 +55,9 @@ public class LlmService : ILlmService, IDisposable
                         Console.WriteLine("❌ DeepSeek API key is required");
                         return Task.FromResult(false);
                     }
+                    _httpClient.DefaultRequestHeaders.Authorization =
+                        new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", _config.ApiKey);
+                    _httpClient.DefaultRequestHeaders.UserAgent.ParseAdd("Telescribe/1.0");
                     break;
 
                 case "ollama":
@@ -330,7 +343,7 @@ public class LlmService : ILlmService, IDisposable
         }
         catch (Exception ex)
         {
-            throw new Exception("Ollama API call failed: " + ex.Message, ex);
+            throw new InvalidOperationException("Ollama API call failed.", ex);
         }
     }
 
@@ -355,16 +368,15 @@ public class LlmService : ILlmService, IDisposable
             var json = JsonSerializer.Serialize(requestBody);
             var content = new StringContent(json, Encoding.UTF8, "application/json");
 
-            using var client = new HttpClient();
-            client.DefaultRequestHeaders.Add("Authorization", "Bearer " + _config.ApiKey);
-            client.DefaultRequestHeaders.Add("User-Agent", "Telescribe/1.0");
-
-            var response = await client.PostAsync(baseUrl + "/chat/completions", content);
+            var response = await _httpClient.PostAsync(baseUrl + "/chat/completions", content);
             var responseContent = await response.Content.ReadAsStringAsync();
 
             if (!response.IsSuccessStatusCode)
             {
-                throw new Exception("DeepSeek API call failed: " + response.StatusCode + " - " + responseContent);
+                throw new HttpRequestException(
+                    $"DeepSeek API call failed: {response.StatusCode} - {responseContent}",
+                    inner: null,
+                    response.StatusCode);
             }
 
             using var document = JsonDocument.Parse(responseContent);
@@ -377,9 +389,9 @@ public class LlmService : ILlmService, IDisposable
 
             return string.Empty;
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not HttpRequestException)
         {
-            throw new Exception("DeepSeek API call failed: " + ex.Message, ex);
+            throw new InvalidOperationException("DeepSeek API call failed.", ex);
         }
     }
 
@@ -388,12 +400,12 @@ public class LlmService : ILlmService, IDisposable
         if (string.IsNullOrWhiteSpace(content))
             return string.Empty;
 
-        content = Regex.Replace(content, @"!\[([^\]]*)\]\([^)]+\)", "");
-        content = Regex.Replace(content, @"\[([^\]]+)\]\([^)]+\)", "$1");
-        content = Regex.Replace(content, @"\*\*([^*]+)\*\*", "$1");
-        content = Regex.Replace(content, @"\*([^*]+)\*", "$1");
-        content = Regex.Replace(content, @"#{1,6}\s*", "");
-        content = Regex.Replace(content, @"\s+", " ");
+        content = ImageMarkdownRegex.Replace(content, "");
+        content = LinkMarkdownRegex.Replace(content, "$1");
+        content = BoldMarkdownRegex.Replace(content, "$1");
+        content = ItalicMarkdownRegex.Replace(content, "$1");
+        content = HeadingMarkdownRegex.Replace(content, "");
+        content = WhitespaceRegex.Replace(content, " ");
         content = content.Trim();
 
         if (content.Length > 1000)
@@ -410,8 +422,8 @@ public class LlmService : ILlmService, IDisposable
             return string.Empty;
 
         title = title.Trim('"', '\'', ' ');
-        title = Regex.Replace(title, @"^(Title:\s*|Post:\s*)", "", RegexOptions.IgnoreCase);
-        title = Regex.Replace(title, @"#\w+", "");
+        title = TitlePrefixRegex.Replace(title, "");
+        title = HashtagInTitleRegex.Replace(title, "");
         title = title.Trim();
 
         if (title.Length > 100)
@@ -440,7 +452,7 @@ public class LlmService : ILlmService, IDisposable
             .Where(hashtag => !string.IsNullOrWhiteSpace(hashtag) &&
                              hashtag.Length <= 30 &&
                              !hashtag.Contains(' ') &&
-                             Regex.IsMatch(hashtag, @"^[a-zA-Z0-9_]+$")));
+                             ValidHashtagRegex.IsMatch(hashtag)));
 
         return hashtags.Distinct().Take(maxHashtags).ToList();
     }
@@ -448,5 +460,6 @@ public class LlmService : ILlmService, IDisposable
     public void Dispose()
     {
         _httpClient.Dispose();
+        GC.SuppressFinalize(this);
     }
 }

@@ -194,7 +194,7 @@ public class WordPressService : IWordPressService
                 existingMapping.UpdatedAt = DateTime.UtcNow;
                 SavePostMappings();
 
-                Console.WriteLine($"Updated WordPress post: {title} (ID: {updatedPost.Id}) with {tagIds.Count.ToString()} tags");
+                Console.WriteLine($"Updated WordPress post: {title} (ID: {updatedPost.Id}) with {tagIds.Count} tags");
                 return updatedPost.Id;
             }
             else
@@ -229,7 +229,7 @@ public class WordPressService : IWordPressService
                 };
                 SavePostMappings();
 
-                Console.WriteLine($"Created WordPress post: {title} (ID: {createdPost.Id}) with {tagIds.Count.ToString()} tags on {telegramPost.CreatedAt:yyyy-MM-dd}");
+                Console.WriteLine($"Created WordPress post: {title} (ID: {createdPost.Id}) with {tagIds.Count} tags on {telegramPost.CreatedAt:yyyy-MM-dd}");
                 return createdPost.Id;
             }
         }
@@ -357,9 +357,9 @@ public class WordPressService : IWordPressService
 
                 var fileName = Path.GetFileName(imagePath);
 
-                if (mediaUrls.ContainsKey(fileName))
+                if (mediaUrls.TryGetValue(fileName, out var resolvedUrl))
                 {
-                    return $"<img src=\"{mediaUrls[fileName]}\" alt=\"{altText}\" />";
+                    return $"<img src=\"{resolvedUrl}\" alt=\"{altText}\" />";
                 }
 
                 return $"<img src=\"{imagePath}\" alt=\"{altText}\" />";
@@ -469,5 +469,6 @@ public class WordPressService : IWordPressService
     public void Dispose()
     {
         SavePostMappings();
+        GC.SuppressFinalize(this);
     }
 }
