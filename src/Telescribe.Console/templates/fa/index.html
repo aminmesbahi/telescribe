@@ -11,29 +11,7 @@
     <link rel='icon' type='image/svg+xml' href='{{faviconPath}}'>
     <meta name="description" content="{{description}}">
     {{canonicalTag}}
-    <script type="application/ld+json">
-        {
-            "@context": "https://schema.org",
-            "@graph": [
-                {
-                    "@type": "WebSite",
-                    "url": {{jsonCanonicalUrl}},
-                    "name": {{jsonSiteTitle}},
-                    "description": {{jsonDescription}},
-                    "inLanguage": "fa"
-                },
-                {
-                    "@type": "Organization",
-                    "name": "REPLACE_WITH_OWNER_OR_ORGANIZATION_NAME",
-                    "url": "https://example.com",
-                    "sameAs": [
-                        "https://example.com/twitter",
-                        "https://example.com/linkedin"
-                    ]
-                }
-            ]
-        }
-    </script>
+    {{jsonLdScript}}
     <style>
         .controls-bar { display:flex; flex-wrap:wrap; gap:1rem; align-items:center; margin-bottom:1.5rem; padding:1rem; background:#fff; border-radius:8px; box-shadow:0 2px 8px rgba(0,0,0,.08); }
         .search-box { flex:1; min-width:200px; padding:.6rem 1rem; border:1px solid #ddd; border-radius:6px; font-family:inherit; font-size:1rem; }
@@ -53,8 +31,8 @@
     </header>
     <main>
         <div class="controls-bar">
-            <input type="search" id="search-input" class="search-box" placeholder="جستجو در پست‌ها..." oninput="applyFilters()">
-            <select id="sort-select" class="sort-select" onchange="applyFilters()">
+            <input type="search" id="search-input" class="search-box" placeholder="جستجو در پست‌ها..." aria-label="جستجو در پست‌ها" oninput="applyFilters()">
+            <select id="sort-select" class="sort-select" aria-label="مرتب‌سازی" onchange="applyFilters()">
                 <option value="date-desc">جدیدترین</option>
                 <option value="date-asc">قدیمی‌ترین</option>
                 <option value="views-desc">بیشترین بازدید</option>

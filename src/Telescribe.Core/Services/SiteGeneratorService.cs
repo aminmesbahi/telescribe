@@ -64,10 +64,7 @@ public class SiteGeneratorService
             ["canonicalUrl"] = canonicalUrl,
             ["canonicalTag"] = BuildCanonicalTag(config.SiteBaseUrl, string.Empty),
             ["faviconPath"] = "favicon.svg",
-            ["jsonSiteTitle"] = JsonString(config.SiteTitle),
-            ["jsonSubtitle"] = JsonString(config.Subtitle),
-            ["jsonDescription"] = JsonString(config.Description),
-            ["jsonCanonicalUrl"] = JsonString(canonicalUrl),
+            ["jsonLdScript"] = BuildJsonLdIndexScript(config, canonicalUrl),
             ["postsContent"] = postsContent.ToString(),
             ["generatedDate"] = generatedDate.ToString("yyyy-MM-dd HH:mm:ss"),
             ["totalPosts"] = posts.Count.ToString()
@@ -87,11 +84,7 @@ public class SiteGeneratorService
             ["canonicalUrl"] = canonicalUrl,
             ["canonicalTag"] = BuildCanonicalTag(config.SiteBaseUrl, $"posts/{post.Filename}.html"),
             ["faviconPath"] = "../favicon.svg",
-            ["jsonSiteTitle"] = JsonString(config.SiteTitle),
-            ["jsonTitle"] = JsonString(post.Title),
-            ["jsonDate"] = JsonString(post.Date.ToString("yyyy-MM-ddTHH:mm:ssK")),
-            ["jsonPreview"] = JsonString(post.Preview),
-            ["jsonCanonicalUrl"] = JsonString(canonicalUrl),
+            ["jsonLdScript"] = BuildJsonLdPostScript(config, post, canonicalUrl),
             ["content"] = post.Content,
             ["views"] = post.Views.ToString(),
             ["reactions"] = post.Reactions.ToString(),
@@ -203,6 +196,73 @@ public class SiteGeneratorService
     private static string JsonString(string? value)
     {
         return JsonSerializer.Serialize(value ?? string.Empty);
+    }
+
+    private static string BuildJsonLdPostScript(StaticSiteConfig config, PostData post, string canonicalUrl)
+    {
+        var lang = config.TemplateName.StartsWith("fa", StringComparison.OrdinalIgnoreCase) ? "fa" : "en";
+        return $$"""
+            <script type="application/ld+json">
+            {
+                "@context": "https://schema.org",
+                "@graph": [
+                    {
+                        "@type": "BlogPosting",
+                        "headline": {{JsonString(post.Title)}},
+                        "description": {{JsonString(post.Preview)}},
+                        "datePublished": {{JsonString(post.Date.ToString("yyyy-MM-ddTHH:mm:ssK"))}},
+                        "dateModified": {{JsonString(post.Date.ToString("yyyy-MM-ddTHH:mm:ssK"))}},
+                        "url": {{JsonString(canonicalUrl)}},
+                        "mainEntityOfPage": {
+                            "@type": "WebPage",
+                            "@id": {{JsonString(canonicalUrl)}}
+                        },
+                        "author": {
+                            "@type": "Person",
+                            "name": "REPLACE_WITH_AUTHOR_NAME",
+                            "url": "https://example.com"
+                        },
+                        "publisher": {
+                            "@type": "Organization",
+                            "name": "REPLACE_WITH_PUBLISHER_NAME",
+                            "url": "https://example.com"
+                        },
+                        "inLanguage": "{{lang}}"
+                    }
+                ]
+            }
+            </script>
+            """;
+    }
+
+    private static string BuildJsonLdIndexScript(StaticSiteConfig config, string canonicalUrl)
+    {
+        var lang = config.TemplateName.StartsWith("fa", StringComparison.OrdinalIgnoreCase) ? "fa" : "en";
+        return $$"""
+            <script type="application/ld+json">
+            {
+                "@context": "https://schema.org",
+                "@graph": [
+                    {
+                        "@type": "WebSite",
+                        "url": {{JsonString(canonicalUrl)}},
+                        "name": {{JsonString(config.SiteTitle)}},
+                        "description": {{JsonString(config.Description)}},
+                        "inLanguage": "{{lang}}"
+                    },
+                    {
+                        "@type": "Organization",
+                        "name": "REPLACE_WITH_OWNER_OR_ORGANIZATION_NAME",
+                        "url": "https://example.com",
+                        "sameAs": [
+                            "https://example.com/twitter",
+                            "https://example.com/linkedin"
+                        ]
+                    }
+                ]
+            }
+            </script>
+            """;
     }
 
     private static string BuildPageTitle(string primaryText, string secondaryText, int maxLength = 60)

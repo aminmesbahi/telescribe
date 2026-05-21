@@ -1,16 +1,19 @@
 global using static System.Console;
 using Microsoft.Extensions.Configuration;
+using System.Diagnostics;
 using System.Globalization;
+using System.Net;
 using System.Reflection;
 using System.Text;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using Telescribe.Core.Models;
 using Telescribe.Core.Services;
 using PostData = Telescribe.Core.Services.PostData;
 
 namespace Telescribe.Console;
 
-public class Program
+public static class Program
 {
     public static async Task Main(string[] args)
     {
@@ -36,7 +39,7 @@ public class Program
         }
         if (args.Length > 0 && args[0] == "reports")
         {
-            await GenerateHtmlReports(config);
+            await GenerateHtmlReports();
             return;
         }
 
@@ -57,7 +60,7 @@ public class Program
                     break;
 
                 case "5":
-                    await GenerateHtmlReports(config);
+                    await GenerateHtmlReports();
                     break;
 
                 case "6":
@@ -162,7 +165,7 @@ public class Program
             WriteLine("📡 Fetching posts from Telegram channel...");
             var result = await telegramService.ExportChannelPostsAsync();
 
-            WriteLine($"🎉 Export completed successfully!");
+            WriteLine("🎉 Export completed successfully!");
             WriteLine($"   📊 Total posts exported: {result.TotalPosts}");
             if (result.Posts.Any())
             {
@@ -234,7 +237,7 @@ public class Program
                 return;
             }
 
-            WriteLine($"🎉 Update completed successfully!");
+            WriteLine("🎉 Update completed successfully!");
             WriteLine($"   📊 New posts exported: {updateSummary.NewPostsCount}");
             if (updateSummary.RefreshedPostsCount > 0)
             {
@@ -267,7 +270,7 @@ public class Program
         }
     }
 
-    static async Task GenerateHtmlReports(TelegramConfig config)
+    static async Task GenerateHtmlReports()
     {
         WriteLine("\n📊 Generating Analytics Reports...");
         WriteLine(new string('─', 50));
@@ -365,7 +368,7 @@ public class Program
                 ["views"] = p.Views.ToString("N0"),
                 ["reactions"] = p.Reactions.ToString("N0"),
                 ["forwards"] = p.TotalForwards.ToString("N0"),
-                ["contentPreview"] = p.ContentPreview ?? "No preview available"
+                ["contentPreview"] = string.IsNullOrEmpty(p.ContentPreview) ? "No preview available" : p.ContentPreview
             })));
 
         var recentPostsHtml = string.Join("", recentPosts.Select(p => 
@@ -376,7 +379,7 @@ public class Program
                 ["views"] = p.Views.ToString("N0"),
                 ["reactions"] = p.Reactions.ToString("N0"),
                 ["forwards"] = p.TotalForwards.ToString("N0"),
-                ["contentPreview"] = p.ContentPreview ?? "No preview available"
+                ["contentPreview"] = string.IsNullOrEmpty(p.ContentPreview) ? "No preview available" : p.ContentPreview
             })));
 
         var reactedPostsHtml = string.Join("", mostReacted.Select(p => 
@@ -387,7 +390,7 @@ public class Program
                 ["reactions"] = p.Reactions.ToString("N0"),
                 ["views"] = p.Views.ToString("N0"),
                 ["forwards"] = p.TotalForwards.ToString("N0"),
-                ["contentPreview"] = p.ContentPreview ?? "No preview available"
+                ["contentPreview"] = string.IsNullOrEmpty(p.ContentPreview) ? "No preview available" : p.ContentPreview
             })));
 
         var forwardedPostsHtml = string.Join("", mostForwarded.Select(p => 
@@ -398,7 +401,7 @@ public class Program
                 ["forwards"] = p.TotalForwards.ToString("N0"),
                 ["views"] = p.Views.ToString("N0"),
                 ["reactions"] = p.Reactions.ToString("N0"),
-                ["contentPreview"] = p.ContentPreview ?? "No preview available"
+                ["contentPreview"] = string.IsNullOrEmpty(p.ContentPreview) ? "No preview available" : p.ContentPreview
             })));
 
         var htmlReport = reportGenerator.RenderTemplate("analytics.html", new Dictionary<string, string>
@@ -414,10 +417,10 @@ public class Program
         var reportPath = Path.Combine(reportsDir, "analytics_report.html");
         await File.WriteAllTextAsync(reportPath, htmlReport);
 
-        WriteLine($"✅ Analytics report generated successfully!");
+        WriteLine("✅ Analytics report generated successfully!");
         WriteLine($"   📄 Report saved to: {reportPath}");
-        WriteLine($"   🎨 Using template-based generation");
-        WriteLine($"   🌐 Open in browser to view detailed insights");
+        WriteLine("   🎨 Using template-based generation");
+        WriteLine("   🌐 Open in browser to view detailed insights");
     }
 
     static async Task GenerateStaticSite(TelegramConfig config)
@@ -489,6 +492,9 @@ public class Program
             WriteLine("✅ Copied template assets");
         }
 
+        if (File.Exists(faviconSource))
+            File.Copy(faviconSource, Path.Combine(siteDir, "favicon.svg"), overwrite: true);
+
         var mediaSource = Path.Combine(exportDir, "media");
         if (Directory.Exists(mediaSource))
         {
@@ -525,7 +531,7 @@ public class Program
             var postData = new PostData
             {
                 Filename = fileName,
-                Title = title ?? $"Post #{fileName}",
+                Title = title,
                 Preview = isNoContent ? "📊 Poll or media-only post" : preview,
                 Content = htmlContent,
                 Date = dateCreated,
@@ -589,7 +595,7 @@ public class Program
             WriteLine("⚠️  StaticSite:SiteBaseUrl is not configured; canonical tags, sitemap.xml, and robots.txt will be skipped.");
         }
 
-        WriteLine($"✅ Static website generated successfully!");
+        WriteLine("✅ Static website generated successfully!");
         WriteLine($"   🌐 Site saved to: {siteDir}");
         WriteLine($"   📌 {sortedPosts.Count} posts generated");
         if (sitemapPath is not null)
@@ -604,7 +610,7 @@ public class Program
             WriteLine($"   🚀 Opening browser: {indexUrl}");
             try
             {
-                System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+                Process.Start(new ProcessStartInfo
                 {
                     FileName = indexUrl,
                     UseShellExecute = true
@@ -730,7 +736,7 @@ public class Program
             posts.Add(new PostData
             {
                 Filename = fileName,
-                Title = title ?? $"Post #{fileName}",
+                Title = title,
                 Preview = isNoContent ? "📊 Poll or media-only post" : preview,
                 Content = htmlContent,
                 Date = dateCreated,
@@ -782,10 +788,10 @@ public class Program
                 ["canonicalTag"] = string.IsNullOrWhiteSpace(config.StaticSite.SiteBaseUrl)
                     ? string.Empty
                     : $"<link rel=\"canonical\" href=\"{config.StaticSite.SiteBaseUrl.Trim().TrimEnd('/')}/about.html\">",
-                ["jsonSiteTitle"] = System.Text.Json.JsonSerializer.Serialize(config.StaticSite.SiteTitle),
-                ["jsonSubtitle"] = System.Text.Json.JsonSerializer.Serialize(config.StaticSite.Subtitle),
-                ["jsonDescription"] = System.Text.Json.JsonSerializer.Serialize(config.StaticSite.Description),
-                ["jsonCanonicalUrl"] = System.Text.Json.JsonSerializer.Serialize(
+                ["jsonSiteTitle"] = JsonSerializer.Serialize(config.StaticSite.SiteTitle),
+                ["jsonSubtitle"] = JsonSerializer.Serialize(config.StaticSite.Subtitle),
+                ["jsonDescription"] = JsonSerializer.Serialize(config.StaticSite.Description),
+                ["jsonCanonicalUrl"] = JsonSerializer.Serialize(
                     string.IsNullOrWhiteSpace(config.StaticSite.SiteBaseUrl)
                         ? string.Empty
                         : $"{config.StaticSite.SiteBaseUrl.Trim().TrimEnd('/')}/about.html"),
@@ -816,9 +822,9 @@ public class Program
         if (File.Exists(faviconSource))
             File.Copy(faviconSource, Path.Combine(siteDir, "favicon.svg"), overwrite: true);
 
-        WriteLine($"✅ Site updated successfully!");
+        WriteLine("✅ Site updated successfully!");
         WriteLine($"   📂 Site folder: {siteDir}");
-        if (exportUpdateSummary != null && exportUpdateSummary.Status == "Completed")
+        if (exportUpdateSummary is { Status: "Completed" })
         {
             WriteLine($"   📡 Export sync: {exportUpdateSummary.NewPostsCount} new, {exportUpdateSummary.RefreshedPostsCount} refreshed");
         }
@@ -833,13 +839,16 @@ public class Program
             var indexUrl = Path.GetFullPath(Path.Combine(siteDir, "index.html"));
             try
             {
-                System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+                Process.Start(new ProcessStartInfo
                 {
                     FileName = indexUrl,
                     UseShellExecute = true
                 });
             }
-            catch { }
+            catch (Exception ex)
+            {
+                WriteLine($"ℹ️ Could not open browser: {ex.Message}");
+            }
         }
     }
 
@@ -891,11 +900,11 @@ public class Program
     static string InlineCss(string html, string cssContent)
     {
         if (string.IsNullOrEmpty(cssContent)) return html;
-        return System.Text.RegularExpressions.Regex.Replace(
+        return Regex.Replace(
             html,
             @"<link\s+rel=['""]stylesheet['""]\s+href=['""][./]*assets/style\.css['""]\s*/?>",
             $"<style>{cssContent}</style>",
-            System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+            RegexOptions.IgnoreCase);
     }
 
     static string StripMarkdownFormatting(string text)
@@ -903,10 +912,10 @@ public class Program
         if (string.IsNullOrEmpty(text))
             return text;
 
-        text = System.Text.RegularExpressions.Regex.Replace(text, @"\[([^\]]+)\]\([^\)]+\)", "$1");
-        text = System.Text.RegularExpressions.Regex.Replace(text, @"\*\*(.*?)\*\*", "$1");
-        text = System.Text.RegularExpressions.Regex.Replace(text, @"\*(.*?)\*", "$1");
-        text = System.Text.RegularExpressions.Regex.Replace(text, @"`([^`]+)`", "$1");
+        text = Regex.Replace(text, @"\[([^\]]+)\]\([^\)]+\)", "$1");
+        text = Regex.Replace(text, @"\*\*(.*?)\*\*", "$1");
+        text = Regex.Replace(text, @"\*(.*?)\*", "$1");
+        text = Regex.Replace(text, "`([^`]+)`", "$1");
         
         return text;
     }
@@ -1000,7 +1009,7 @@ public class Program
                 {
                     var lang = trimmedLine.Substring(3).Trim();
                     var classAttr = lang.Length > 0
-                        ? $" class=\"language-{System.Net.WebUtility.HtmlEncode(lang)}\""
+                        ? $" class=\"language-{WebUtility.HtmlEncode(lang)}\""
                         : "";
                     htmlBuilder.AppendLine($"<pre><code{classAttr}>");
                     inCodeBlock = true;
@@ -1016,7 +1025,7 @@ public class Program
             // Inside a code block: preserve indentation and escape HTML entities
             if (inCodeBlock)
             {
-                htmlBuilder.AppendLine(System.Net.WebUtility.HtmlEncode(line));
+                htmlBuilder.AppendLine(WebUtility.HtmlEncode(line));
                 continue;
             }
 
@@ -1028,7 +1037,7 @@ public class Program
 
             if (trimmedLine.StartsWith("!["))
             {
-                var match = System.Text.RegularExpressions.Regex.Match(trimmedLine, @"!\[.*?\]\((.*?)\)");
+                var match = Regex.Match(trimmedLine, @"!\[.*?\]\((.*?)\)");
                 if (match.Success)
                 {
                     var imagePath = match.Groups[1].Value;
@@ -1040,13 +1049,13 @@ public class Program
             var htmlLine = trimmedLine;
 
             // Inline code must be extracted before bold/italic to avoid processing its content
-            htmlLine = System.Text.RegularExpressions.Regex.Replace(htmlLine, @"`([^`]+)`",
-                m => $"<code>{System.Net.WebUtility.HtmlEncode(m.Groups[1].Value)}</code>");
+            htmlLine = Regex.Replace(htmlLine, "`([^`]+)`",
+                m => $"<code>{WebUtility.HtmlEncode(m.Groups[1].Value)}</code>");
 
-            htmlLine = System.Text.RegularExpressions.Regex.Replace(htmlLine, @"\[([^\]]+)\]\(([^\)]+)\)", "<a href='$2' target='_blank' rel='noopener noreferrer'>$1</a>");
+            htmlLine = Regex.Replace(htmlLine, @"\[([^\]]+)\]\(([^\)]+)\)", "<a href='$2' target='_blank' rel='noopener noreferrer'>$1</a>");
 
-            htmlLine = System.Text.RegularExpressions.Regex.Replace(htmlLine, @"\*\*(.*?)\*\*", "<strong>$1</strong>");
-            htmlLine = System.Text.RegularExpressions.Regex.Replace(htmlLine, @"\*(.*?)\*", "<em>$1</em>");
+            htmlLine = Regex.Replace(htmlLine, @"\*\*(.*?)\*\*", "<strong>$1</strong>");
+            htmlLine = Regex.Replace(htmlLine, @"\*(.*?)\*", "<em>$1</em>");
 
             if (htmlLine.StartsWith("### "))
                 htmlLine = $"<h3>{htmlLine.Substring(4)}</h3>";
@@ -1078,10 +1087,7 @@ public class Program
             if (line.StartsWith("**Created:**"))
             {
                 var dateText = line.Replace("**Created:**", "").Trim();
-                if (dateText.EndsWith(" UTC"))
-                {
-                    dateText = dateText.Substring(0, dateText.Length - 4).Trim();
-                }
+                dateText = dateText.EndsWith(" UTC") ? dateText[..^4].Trim() : dateText;
 
                 if (DateTime.TryParseExact(dateText, "yyyy-MM-dd HH:mm:ss", null, DateTimeStyles.None, out var date))
                 {
@@ -1095,12 +1101,6 @@ public class Program
             }
         }
         return DateTime.MinValue;
-    }
-
-    static long GetDirectorySize(string dirPath)
-    {
-        var dir = new DirectoryInfo(dirPath);
-        return dir.GetFiles("*", SearchOption.AllDirectories).Sum(file => file.Length);
     }
 
     static Task WriteUtf8FileAsync(string path, string content)

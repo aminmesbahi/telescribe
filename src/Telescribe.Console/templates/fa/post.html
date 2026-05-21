@@ -11,36 +11,7 @@
     <link rel='icon' type='image/svg+xml' href='{{faviconPath}}'>
     <meta name="description" content="{{preview}}">
     {{canonicalTag}}
-    <script type="application/ld+json">
-        {
-            "@context": "https://schema.org",
-            "@graph": [
-                {
-                    "@type": "BlogPosting",
-                    "headline": {{jsonTitle}},
-                    "description": {{jsonPreview}},
-                    "datePublished": {{jsonDate}},
-                    "dateModified": {{jsonDate}},
-                    "url": {{jsonCanonicalUrl}},
-                    "mainEntityOfPage": {
-                        "@type": "WebPage",
-                        "@id": {{jsonCanonicalUrl}}
-                    },
-                    "author": {
-                        "@type": "Person",
-                        "name": "REPLACE_WITH_AUTHOR_NAME",
-                        "url": "https://example.com"
-                    },
-                    "publisher": {
-                        "@type": "Organization",
-                        "name": "REPLACE_WITH_PUBLISHER_NAME",
-                        "url": "https://example.com"
-                    },
-                    "inLanguage": "fa"
-                }
-            ]
-        }
-    </script>
+    {{jsonLdScript}}
 </head>
 <body>
     <header>
