@@ -10,7 +10,7 @@
     <PackageReference Include="WTelegramClient" Version="4.4.4" />
     <PackageReference Include="WordPressPCL" Version="2.1.0" />
     <PackageReference Include="Microsoft.SemanticKernel" Version="1.76.0" />
-    <PackageReference Include="Microsoft.SemanticKernel.Connectors.OpenAI" Version="1.76.0" />
+    <PackageReference Include="Microsoft.SemanticKernel.Connectors.OpenAI" Version="1.77.0" />
   </ItemGroup>
 
 </Project>
