@@ -569,10 +569,25 @@ public static class Program
         {
             var aboutHtml = InlineCss(siteGenerator.RenderTemplate("about.html", new Dictionary<string, string>
             {
+                ["pageTitle"]   = $"About {config.StaticSite.SiteTitle}",
                 ["siteTitle"]   = config.StaticSite.SiteTitle,
                 ["subtitle"]    = config.StaticSite.Subtitle,
                 ["headerIcon"]  = config.StaticSite.HeaderIcon,
                 ["description"] = config.StaticSite.Description,
+                ["faviconPath"] = "favicon.svg",
+                ["canonicalUrl"] = string.IsNullOrWhiteSpace(config.StaticSite.SiteBaseUrl)
+                    ? string.Empty
+                    : $"{config.StaticSite.SiteBaseUrl.Trim().TrimEnd('/')}/about.html",
+                ["canonicalTag"] = string.IsNullOrWhiteSpace(config.StaticSite.SiteBaseUrl)
+                    ? string.Empty
+                    : $"<link rel=\"canonical\" href=\"{config.StaticSite.SiteBaseUrl.Trim().TrimEnd('/')}/about.html\">",
+                ["jsonSiteTitle"] = JsonSerializer.Serialize(config.StaticSite.SiteTitle ?? ""),
+                ["jsonSubtitle"] = JsonSerializer.Serialize(config.StaticSite.Subtitle ?? ""),
+                ["jsonDescription"] = JsonSerializer.Serialize(config.StaticSite.Description ?? ""),
+                ["jsonCanonicalUrl"] = JsonSerializer.Serialize(
+                    string.IsNullOrWhiteSpace(config.StaticSite.SiteBaseUrl)
+                        ? string.Empty
+                        : $"{config.StaticSite.SiteBaseUrl.Trim().TrimEnd('/')}/about.html")
             }), cssContent);
             await File.WriteAllTextAsync(Path.Combine(siteDir, "about.html"), aboutHtml);
             WriteLine("✅ Generated about.html");

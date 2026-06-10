@@ -45,7 +45,7 @@ public class SiteGeneratorService
                 ["filename"] = post.Filename,
                 ["title"] = post.Title,
                 ["date"] = post.Date.ToString("yyyy-MM-dd"),
-                ["preview"] = post.Preview,
+                ["preview"] = SanitizeMetaDescription(post.Preview),
                 ["views"] = post.Views.ToString(),
                 ["reactions"] = post.Reactions.ToString(),
                 ["forwards"] = post.Forwards.ToString()
@@ -60,11 +60,14 @@ public class SiteGeneratorService
             ["siteTitle"] = config.SiteTitle,
             ["subtitle"] = config.Subtitle,
             ["headerIcon"] = config.HeaderIcon,
-            ["description"] = config.Description,
+            ["description"] = SanitizeMetaDescription(config.Description),
             ["canonicalUrl"] = canonicalUrl,
             ["canonicalTag"] = BuildCanonicalTag(config.SiteBaseUrl, string.Empty),
             ["faviconPath"] = "favicon.svg",
             ["jsonLdScript"] = BuildJsonLdIndexScript(config, canonicalUrl),
+            ["jsonCanonicalUrl"] = JsonString(canonicalUrl),
+            ["jsonSiteTitle"] = JsonString(config.SiteTitle),
+            ["jsonDescription"] = JsonString(config.Description),
             ["postsContent"] = postsContent.ToString(),
             ["generatedDate"] = generatedDate.ToString("yyyy-MM-dd HH:mm:ss"),
             ["totalPosts"] = posts.Count.ToString()
@@ -80,11 +83,16 @@ public class SiteGeneratorService
             ["siteTitle"] = config.SiteTitle,
             ["title"] = post.Title,
             ["date"] = post.Date.ToString("yyyy-MM-dd HH:mm:ss"),
-            ["preview"] = post.Preview,
+            ["preview"] = SanitizeMetaDescription(post.Preview),
             ["canonicalUrl"] = canonicalUrl,
             ["canonicalTag"] = BuildCanonicalTag(config.SiteBaseUrl, $"posts/{post.Filename}.html"),
             ["faviconPath"] = "../favicon.svg",
             ["jsonLdScript"] = BuildJsonLdPostScript(config, post, canonicalUrl),
+            ["jsonCanonicalUrl"] = JsonString(canonicalUrl),
+            ["jsonSiteTitle"] = JsonString(config.SiteTitle),
+            ["jsonTitle"] = JsonString(post.Title),
+            ["jsonPreview"] = JsonString(post.Preview),
+            ["jsonDate"] = JsonString(post.Date.ToString("yyyy-MM-ddTHH:mm:ssK")),
             ["content"] = post.Content,
             ["views"] = post.Views.ToString(),
             ["reactions"] = post.Reactions.ToString(),
@@ -191,6 +199,17 @@ public class SiteGeneratorService
         return string.IsNullOrWhiteSpace(baseUrl)
             ? string.Empty
             : baseUrl.Trim().TrimEnd('/');
+    }
+
+    private static string SanitizeMetaDescription(string? input)
+    {
+        if (string.IsNullOrWhiteSpace(input))
+            return string.Empty;
+        
+        return input.Replace("\"", "&quot;")
+                    .Replace("\r\n", " ")
+                    .Replace("\n", " ")
+                    .Trim();
     }
 
     private static string JsonString(string? value)
