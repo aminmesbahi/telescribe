@@ -109,7 +109,7 @@ public class WordPressService : IWordPressService
                 using var stream = new MemoryStream(fileBytes);
 
                 var uploadedMedia = await _client.Media.CreateAsync(stream, fileName);
-                mediaUrls[mediaFile] = uploadedMedia.SourceUrl;
+                mediaUrls[mediaFile] = uploadedMedia.SourceUrl ?? string.Empty;
 
                 Console.WriteLine($"Uploaded media: {fileName} (ID: {uploadedMedia.Id}) -> {uploadedMedia.SourceUrl}");
 
@@ -182,7 +182,9 @@ public class WordPressService : IWordPressService
 
             if (isUpdate)
             {
-                var existingPost = await _client.Posts.GetByIDAsync(existingMapping!.WordPressPostId);
+                var existingPost = await _client.Posts.GetByIdAsync(existingMapping!.WordPressPostId);
+                existingPost.Title ??= new Title();
+                existingPost.Content ??= new Content();
                 existingPost.Title.Raw = title;
                 existingPost.Content.Raw = htmlContent;
                 existingPost.Modified = DateTime.UtcNow;

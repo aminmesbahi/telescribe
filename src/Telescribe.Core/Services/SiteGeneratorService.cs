@@ -214,7 +214,11 @@ public class SiteGeneratorService
 
     private static string JsonString(string? value)
     {
-        return JsonSerializer.Serialize(value ?? string.Empty);
+        var options = new JsonSerializerOptions
+        {
+            Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping
+        };
+        return JsonSerializer.Serialize(value ?? string.Empty, options);
     }
 
     private static string BuildJsonLdPostScript(StaticSiteConfig config, PostData post, string canonicalUrl)

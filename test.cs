@@ -1,0 +1,1 @@
+using System; using System.Text.Encodings.Web; using System.Text.Json; var title="\"test\n\r"; var o = new JsonSerializerOptions { Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping }; Console.WriteLine(JsonSerializer.Serialize(title));
