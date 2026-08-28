@@ -15,6 +15,17 @@ public class TelegramPost
     public string Channel { get; set; } = string.Empty;
     public List<string> MediaFiles { get; set; } = [];
 
+    // Post type: "text", "photo", "document", "article", ...
+    public string PostType { get; set; } = "text";
+
+    // Telegram article metadata (native "article" posts)
+    public string ArticleTitle { get; set; } = string.Empty;
+    public string ArticleAuthor { get; set; } = string.Empty;
+    public string ArticleUrl { get; set; } = string.Empty;
+    public string SiteName { get; set; } = string.Empty;
+    // True when the cached Instant View page was delivered in parts (Telegram flag: Page.Flags.part)
+    public bool IsPartialArticle { get; set; } = false;
+
     // LLM-generated fields
     public string GeneratedTitle { get; set; } = string.Empty;
 

@@ -16,6 +16,9 @@ Telescribe turns your Telegram channel into a content hub. It exports posts with
 ### 📥 **Telegram Export**
 - Export all posts from any Telegram channel you have access to
 - Download media files (images, videos, documents, audio)
+- Exports polls with vote counts and visual bars
+- Rich text formatting: bold, italic, underline, strikethrough, spoiler, code blocks, links, blockquotes
+- Article posts partially supported (Instant View content extracted, but native Telegram article format may fail)
 - Incremental updates: sync only new posts since the last export
 - Captures views, reactions, and forward counts per post
 - Exports to Markdown files for easy processing
@@ -192,6 +195,7 @@ Templates live in `src/Telescribe.Console/templates/{name}/` and consist of plai
 
 - **LLM Processing**: Partially implemented, still in development
 - **WordPress Upload**: Menu option visible but full integration is in progress
+- **Article Posts**: Native Telegram article format is not fully supported. Some articles may export as empty or only show metadata. The Instant View page parser works for many cases but not all.
 - **API Rate Limits**: Telegram API has built-in rate limiting; large channels may take a while
 
 ## License

@@ -485,6 +485,7 @@ public static class Program
         var assetsSource = Path.Combine(templatesPath, "style.css");
         var cssContent = File.Exists(assetsSource) ? await File.ReadAllTextAsync(assetsSource) : "";
         var faviconSource = Path.Combine(templatesPath, "favicon.svg");
+        var socialPreviewSource = Path.Combine(templatesPath, "social-preview.png");
         if (File.Exists(assetsSource))
         {
             var assetsTarget = Path.Combine(siteDir, "assets", "style.css");
@@ -494,6 +495,8 @@ public static class Program
 
         if (File.Exists(faviconSource))
             File.Copy(faviconSource, Path.Combine(siteDir, "favicon.svg"), overwrite: true);
+        if (File.Exists(socialPreviewSource))
+            File.Copy(socialPreviewSource, Path.Combine(siteDir, "social-preview.png"), overwrite: true);
 
         var mediaSource = Path.Combine(exportDir, "media");
         if (Directory.Exists(mediaSource))
@@ -525,8 +528,8 @@ public static class Program
             var preview = ExtractPreview(content);
             var dateCreated = ExtractCreationDate(content);
             var (views, reactions, forwards) = ExtractMetadata(content);
-            var htmlContent = ConvertMarkdownToHtml(content);
-            var isNoContent = content.Contains("[No content]");
+            var htmlContent = ConvertMarkdownToHtml(content, title);
+            var isNoContent = IsNoContentPost(content);
 
             var postData = new PostData
             {
@@ -569,7 +572,7 @@ public static class Program
         {
             var aboutHtml = InlineCss(siteGenerator.RenderTemplate("about.html", new Dictionary<string, string>
             {
-                ["pageTitle"]   = $"About {config.StaticSite.SiteTitle}",
+                ["pageTitle"]   = BuildAboutPageTitle(config.StaticSite),
                 ["siteTitle"]   = config.StaticSite.SiteTitle,
                 ["subtitle"]    = config.StaticSite.Subtitle,
                 ["headerIcon"]  = config.StaticSite.HeaderIcon,
@@ -581,6 +584,13 @@ public static class Program
                 ["canonicalTag"] = string.IsNullOrWhiteSpace(config.StaticSite.SiteBaseUrl)
                     ? string.Empty
                     : $"<link rel=\"canonical\" href=\"{config.StaticSite.SiteBaseUrl.Trim().TrimEnd('/')}/about.html\">",
+                ["socialMetaTags"] = siteGenerator.BuildSocialMetaTags(
+                    config.StaticSite,
+                    BuildAboutPageTitle(config.StaticSite),
+                    config.StaticSite.Description,
+                    string.IsNullOrWhiteSpace(config.StaticSite.SiteBaseUrl)
+                        ? string.Empty
+                        : $"{config.StaticSite.SiteBaseUrl.Trim().TrimEnd('/')}/about.html"),
                 ["jsonSiteTitle"] = JsonSerializer.Serialize(config.StaticSite.SiteTitle ?? ""),
                 ["jsonSubtitle"] = JsonSerializer.Serialize(config.StaticSite.Subtitle ?? ""),
                 ["jsonDescription"] = JsonSerializer.Serialize(config.StaticSite.Description ?? ""),
@@ -714,6 +724,7 @@ public static class Program
         var assetsSource = Path.Combine(templatesPath, "style.css");
         var cssContent = File.Exists(assetsSource) ? await File.ReadAllTextAsync(assetsSource) : "";
         var faviconSource = Path.Combine(templatesPath, "favicon.svg");
+        var socialPreviewSource = Path.Combine(templatesPath, "social-preview.png");
 
         // Sync new media files (skip existing ones)
         var mediaSource = Path.Combine(exportDir, "media");
@@ -745,8 +756,8 @@ public static class Program
             var preview = ExtractPreview(content);
             var dateCreated = ExtractCreationDate(content);
             var (views, reactions, forwards) = ExtractMetadata(content);
-            var htmlContent = ConvertMarkdownToHtml(content);
-            var isNoContent = content.Contains("[No content]");
+            var htmlContent = ConvertMarkdownToHtml(content, title);
+            var isNoContent = IsNoContentPost(content);
 
             posts.Add(new PostData
             {
@@ -803,6 +814,13 @@ public static class Program
                 ["canonicalTag"] = string.IsNullOrWhiteSpace(config.StaticSite.SiteBaseUrl)
                     ? string.Empty
                     : $"<link rel=\"canonical\" href=\"{config.StaticSite.SiteBaseUrl.Trim().TrimEnd('/')}/about.html\">",
+                ["socialMetaTags"] = siteGenerator.BuildSocialMetaTags(
+                    config.StaticSite,
+                    BuildAboutPageTitle(config.StaticSite),
+                    config.StaticSite.Description,
+                    string.IsNullOrWhiteSpace(config.StaticSite.SiteBaseUrl)
+                        ? string.Empty
+                        : $"{config.StaticSite.SiteBaseUrl.Trim().TrimEnd('/')}/about.html"),
                 ["jsonSiteTitle"] = JsonSerializer.Serialize(config.StaticSite.SiteTitle),
                 ["jsonSubtitle"] = JsonSerializer.Serialize(config.StaticSite.Subtitle),
                 ["jsonDescription"] = JsonSerializer.Serialize(config.StaticSite.Description),
@@ -836,6 +854,8 @@ public static class Program
             File.Copy(assetsSource, Path.Combine(siteDir, "assets", "style.css"), overwrite: true);
         if (File.Exists(faviconSource))
             File.Copy(faviconSource, Path.Combine(siteDir, "favicon.svg"), overwrite: true);
+        if (File.Exists(socialPreviewSource))
+            File.Copy(socialPreviewSource, Path.Combine(siteDir, "social-preview.png"), overwrite: true);
 
         WriteLine("✅ Site updated successfully!");
         WriteLine($"   📂 Site folder: {siteDir}");
@@ -893,23 +913,65 @@ public static class Program
         {
             var trimmedLine = line.Trim();
 
-            if (trimmedLine.StartsWith("**Created:**") ||
-                trimmedLine.StartsWith("**Edited:**") ||
-                trimmedLine.StartsWith("**Views:**") ||
-                trimmedLine.StartsWith("**Reactions:**") ||
-                trimmedLine.StartsWith("**Forwards:**") ||
-                trimmedLine.StartsWith("**LLM Processed:**") ||
+            if (IsMetadataLine(trimmedLine) ||
                 trimmedLine.StartsWith("![") ||
                 trimmedLine.Equals("[No content]", StringComparison.OrdinalIgnoreCase) ||
+                trimmedLine.Equals("This article was shared as a preview without extracted body text.", StringComparison.OrdinalIgnoreCase) ||
                 string.IsNullOrWhiteSpace(trimmedLine))
             {
                 continue;
             }
 
-            return StripMarkdownFormatting(trimmedLine);
+            return StripMarkdownFormatting(StripHeadingMarkers(trimmedLine));
         }
 
         return null;
+    }
+
+    static bool IsPostMetadataLine(string trimmedLine)
+    {
+        return trimmedLine.StartsWith("**Created:**") ||
+               trimmedLine.StartsWith("**Edited:**") ||
+               trimmedLine.StartsWith("**Post Type:**") ||
+               trimmedLine.StartsWith("**Views:**") ||
+               trimmedLine.StartsWith("**Reactions:**") ||
+               trimmedLine.StartsWith("**Forwards:**") ||
+               trimmedLine.StartsWith("**LLM Processed:**") ||
+               trimmedLine.StartsWith("**Tags:**");
+    }
+
+    static bool IsNoContentPost(string content)
+    {
+        if (string.IsNullOrWhiteSpace(content))
+            return true;
+
+        var normalized = content.Replace("\r\n", "\n");
+        if (normalized.Contains("[No content]", StringComparison.OrdinalIgnoreCase))
+            return true;
+
+        if (normalized.Contains("**Post Type:** Article", StringComparison.OrdinalIgnoreCase) ||
+            normalized.Contains("**Source:**", StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        return false;
+    }
+
+    static bool IsArticleAttributionLine(string trimmedLine)
+    {
+        return trimmedLine.StartsWith("**Author:**") ||
+               trimmedLine.StartsWith("**Source:**");
+    }
+
+    static bool IsMetadataLine(string trimmedLine)
+    {
+        return IsPostMetadataLine(trimmedLine) || IsArticleAttributionLine(trimmedLine);
+    }
+
+    static string StripHeadingMarkers(string text)
+    {
+        return Regex.Replace(text, @"^#{1,6}\s+", string.Empty);
     }
 
     static string InlineCss(string html, string cssContent)
@@ -939,28 +1001,19 @@ public static class Program
     {
         var lines = content.Split('\n');
         var contentBuilder = new StringBuilder();
-        bool skippedMetadata = false;
         bool skippedTitle = false;
 
         foreach (var line in lines)
         {
             var trimmedLine = line.Trim();
 
-            if (!skippedMetadata && (trimmedLine.StartsWith("**Created:**") ||
-                trimmedLine.StartsWith("**Edited:**") ||
-                trimmedLine.StartsWith("**Views:**") ||
-                trimmedLine.StartsWith("**Reactions:**") ||
-                trimmedLine.StartsWith("**Forwards:**") ||
-                trimmedLine.StartsWith("**LLM Processed:**") ||
+            if (IsMetadataLine(trimmedLine) ||
                 trimmedLine.StartsWith("![") ||
-                string.IsNullOrWhiteSpace(trimmedLine)))
+                trimmedLine.Equals("[No content]", StringComparison.OrdinalIgnoreCase) ||
+                trimmedLine.Equals("This article was shared as a preview without extracted body text.", StringComparison.OrdinalIgnoreCase) ||
+                string.IsNullOrWhiteSpace(trimmedLine))
             {
                 continue;
-            }
-
-            if (!skippedMetadata)
-            {
-                skippedMetadata = true;
             }
 
             if (!skippedTitle)
@@ -969,7 +1022,7 @@ public static class Program
                 continue;
             }
 
-            if (!string.IsNullOrWhiteSpace(trimmedLine) && !trimmedLine.StartsWith("#") && !trimmedLine.Equals("[No content]"))
+            if (!trimmedLine.StartsWith("#"))
             {
                 contentBuilder.AppendLine(trimmedLine);
                 if (contentBuilder.Length > maxLength)
@@ -988,7 +1041,7 @@ public static class Program
         return string.IsNullOrEmpty(preview) ? "No preview available" : preview;
     }
 
-    static string ConvertMarkdownToHtml(string markdown)
+    static string ConvertMarkdownToHtml(string markdown, string? postTitle = null)
     {
         var lines = markdown.Split('\n');
         var htmlBuilder = new StringBuilder();
@@ -999,12 +1052,18 @@ public static class Program
         {
             var trimmedLine = line.Trim();
 
-            if (!skippedMetadata && (trimmedLine.StartsWith("**Created:**") ||
-                trimmedLine.StartsWith("**Edited:**") ||
-                trimmedLine.StartsWith("**Views:**") ||
-                trimmedLine.StartsWith("**Reactions:**") ||
-                trimmedLine.StartsWith("**Forwards:**") ||
-                trimmedLine.StartsWith("**LLM Processed:**")))
+            // Post metadata is never part of the rendered content.
+            if (IsPostMetadataLine(trimmedLine))
+            {
+                continue;
+            }
+
+            if (trimmedLine.Equals("This article was shared as a preview without extracted body text.", StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            if (!skippedMetadata && trimmedLine.StartsWith("!["))
             {
                 continue;
             }
@@ -1016,6 +1075,18 @@ public static class Program
 
             if (!skippedMetadata)
                 continue;
+
+            // Skip heading lines that just repeat the post title (the template
+            // already renders the title in the page header).
+            if (postTitle != null &&
+                (trimmedLine.StartsWith("# ") || trimmedLine.StartsWith("## ")))
+            {
+                var headingText = StripHeadingMarkers(trimmedLine);
+                if (string.Equals(StripMarkdownFormatting(headingText), StripMarkdownFormatting(postTitle), StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+            }
 
             // Fenced code block delimiter
             if (trimmedLine.StartsWith("```"))
@@ -1061,16 +1132,19 @@ public static class Program
                 continue;
             }
 
-            var htmlLine = trimmedLine;
+            // Telegram/LLM content occasionally contains [[label]](url). Normalize it
+            // before parsing so it becomes a real link instead of visible Markdown.
+            var normalizedLine = Regex.Replace(trimmedLine, @"\[\[([^\]]+)\]\]\(([^)]+)\)", "[$1]($2)");
+            var htmlLine = WebUtility.HtmlEncode(normalizedLine);
 
             // Inline code must be extracted before bold/italic to avoid processing its content
-            htmlLine = Regex.Replace(htmlLine, "`([^`]+)`",
-                m => $"<code>{WebUtility.HtmlEncode(m.Groups[1].Value)}</code>");
+            htmlLine = Regex.Replace(htmlLine, "`([^`]+)`", "<code>$1</code>");
 
-            htmlLine = Regex.Replace(htmlLine, @"\[([^\]]+)\]\(([^\)]+)\)", "<a href='$2' target='_blank' rel='noopener noreferrer'>$1</a>");
+            htmlLine = Regex.Replace(htmlLine, @"\[([^\]]+)\]\(([^\)]+)\)", RenderSafeMarkdownLink);
 
             htmlLine = Regex.Replace(htmlLine, @"\*\*(.*?)\*\*", "<strong>$1</strong>");
             htmlLine = Regex.Replace(htmlLine, @"\*(.*?)\*", "<em>$1</em>");
+            htmlLine = Regex.Replace(htmlLine, @"_(.*?)_", "<em>$1</em>");
 
             if (htmlLine.StartsWith("### "))
                 htmlLine = $"<h3>{htmlLine.Substring(4)}</h3>";
@@ -1092,6 +1166,28 @@ public static class Program
             htmlBuilder.AppendLine("</code></pre>");
 
         return htmlBuilder.ToString();
+    }
+
+    static string RenderSafeMarkdownLink(Match match)
+    {
+        var label = match.Groups[1].Value;
+        var decodedUrl = WebUtility.HtmlDecode(match.Groups[2].Value).Trim();
+
+        if (!Uri.TryCreate(decodedUrl, UriKind.Absolute, out var uri) ||
+            (uri.Scheme != Uri.UriSchemeHttp && uri.Scheme != Uri.UriSchemeHttps && uri.Scheme != Uri.UriSchemeMailto))
+        {
+            return label;
+        }
+
+        return $"<a href='{WebUtility.HtmlEncode(uri.ToString())}' target='_blank' rel='noopener noreferrer'>{label}</a>";
+    }
+
+    static string BuildAboutPageTitle(StaticSiteConfig config)
+    {
+        return config.TemplateName.StartsWith("fa", StringComparison.OrdinalIgnoreCase) ||
+               config.TemplateName.Equals("techafternoon", StringComparison.OrdinalIgnoreCase)
+            ? $"درباره {config.SiteTitle}"
+            : $"About {config.SiteTitle}";
     }
 
     static DateTime ExtractCreationDate(string content)

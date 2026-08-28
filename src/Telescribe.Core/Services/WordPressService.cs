@@ -297,6 +297,17 @@ public class WordPressService : IWordPressService
 
     private string GeneratePostTitle(TelegramPost post)
     {
+        var preferredTitle = !string.IsNullOrWhiteSpace(post.GeneratedTitle)
+            ? post.GeneratedTitle
+            : !string.IsNullOrWhiteSpace(post.ArticleTitle)
+                ? post.ArticleTitle
+                : null;
+
+        if (!string.IsNullOrWhiteSpace(preferredTitle))
+        {
+            return TruncateTitle(preferredTitle, 60);
+        }
+
         if (!string.IsNullOrWhiteSpace(post.Content))
         {
             var lines = post.Content.Split('\n', StringSplitOptions.RemoveEmptyEntries);
@@ -305,15 +316,16 @@ public class WordPressService : IWordPressService
             if (!string.IsNullOrWhiteSpace(firstLine))
             {
                 var title = firstLine.Replace("#", "").Replace("*", "").Replace("_", "").Trim();
-                if (title.Length > 60)
-                {
-                    title = title[..57] + "...";
-                }
-                return title;
+                return TruncateTitle(title, 60);
             }
         }
 
         return $"Telegram Post {post.Id} - {post.CreatedAt:yyyy-MM-dd}";
+    }
+
+    private static string TruncateTitle(string title, int maxLength)
+    {
+        return title.Length > maxLength ? title[..(maxLength - 3)] + "..." : title;
     }
 
     private string GenerateSlug(string title, long postId)

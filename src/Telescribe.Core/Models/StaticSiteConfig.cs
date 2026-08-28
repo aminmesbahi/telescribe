@@ -7,6 +7,14 @@ public class StaticSiteConfig
     public string Subtitle { get; set; } = "Telegram Channel Archive";
     public string HeaderIcon { get; set; } = "📱";
     public string Description { get; set; } = "Archive of Telegram channel posts";
+    /// <summary>Absolute URL of the default image used for Open Graph and Twitter previews.</summary>
+    public string SocialImageUrl { get; set; } = "";
+    public int SocialImageWidth { get; set; }
+    public int SocialImageHeight { get; set; }
+    /// <summary>Twitter/X handle, including the leading @, used for Twitter Card metadata.</summary>
+    public string TwitterHandle { get; set; } = "";
+    /// <summary>Open Graph locale such as en_US or fa_IR.</summary>
+    public string OpenGraphLocale { get; set; } = "en_US";
     public bool OpenBrowserAfterGeneration { get; set; } = true;
     public int MaxPostsInIndex { get; set; } = 50;
     /// <summary>Base URL used in sitemap.xml (e.g. https://example.com). Leave empty to skip absolute URLs.</summary>
