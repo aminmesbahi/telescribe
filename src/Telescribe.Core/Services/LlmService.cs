@@ -3,6 +3,7 @@ using Microsoft.SemanticKernel.Connectors.OpenAI;
 using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
+using Telescribe.Core.Export;
 using Telescribe.Core.Models;
 
 namespace Telescribe.Core.Services;
@@ -21,12 +22,15 @@ public class LlmService : ILlmService, IDisposable
     private static readonly Regex WhitespaceRegex = new(@"\s+", RegexOptions.Compiled);
     private static readonly Regex TitlePrefixRegex = new(@"^(Title:\s*|Post:\s*)", RegexOptions.Compiled | RegexOptions.IgnoreCase);
     private static readonly Regex HashtagInTitleRegex = new(@"#\w+", RegexOptions.Compiled);
-    private static readonly Regex ValidHashtagRegex = new(@"^[a-zA-Z0-9_]+$", RegexOptions.Compiled);
+
+    // Letters, marks and digits of any script (Persian, Arabic, ...), underscores, and format characters such as
+    // the zero-width non-joiner that Persian hashtags rely on.
+    private static readonly Regex ValidHashtagRegex = new(@"^[\p{L}\p{M}\p{N}\p{Cf}_]+$", RegexOptions.Compiled);
 
     public LlmService(LlmConfig config)
     {
         _config = config ?? throw new ArgumentNullException(nameof(config));
-        _httpClient = new HttpClient();
+        _httpClient = new HttpClient { Timeout = TimeSpan.FromSeconds(Math.Max(5, _config.TimeoutSeconds)) };
     }
 
     public Task<bool> InitializeAsync()
@@ -45,7 +49,17 @@ public class LlmService : ILlmService, IDisposable
                         Console.WriteLine("❌ OpenAI API key is required");
                         return Task.FromResult(false);
                     }
-                    builder.AddOpenAIChatCompletion(_config.ModelName, _config.ApiKey);
+
+                    if (!string.IsNullOrWhiteSpace(_config.BaseUrl))
+                    {
+                        // Any OpenAI-compatible endpoint.
+                        builder.AddOpenAIChatCompletion(_config.ModelName, new Uri(_config.BaseUrl), _config.ApiKey);
+                    }
+                    else
+                    {
+                        builder.AddOpenAIChatCompletion(_config.ModelName, _config.ApiKey);
+                    }
+
                     _kernel = builder.Build();
                     break;
 
@@ -241,42 +255,14 @@ public class LlmService : ILlmService, IDisposable
         }
     }
 
-    private async Task SaveProcessedPostAsync(TelegramPost post, string outputDirectory)
+    private static async Task SaveProcessedPostAsync(TelegramPost post, string outputDirectory)
     {
-        var content = BuildProcessedMarkdownContent(post);
-        var fileName = post.Id + ".md";
-        var filePath = Path.Combine(outputDirectory, fileName);
-        await File.WriteAllTextAsync(filePath, content);
+        // Same format the exporter writes, so the site builder reads both identically.
+        var filePath = Path.Combine(outputDirectory, post.Id + ".md");
+        await File.WriteAllTextAsync(filePath, PostMarkdownWriter.BuildProcessed(post));
     }
 
-    private string BuildProcessedMarkdownContent(TelegramPost post)
-    {
-        var content = new StringBuilder();
-
-        content.AppendLine("**Created:** " + post.CreatedAt.ToString("yyyy-MM-dd HH:mm:ss") + " UTC");
-        content.AppendLine("**LLM Processed:** " + DateTime.UtcNow.ToString("yyyy-MM-dd HH:mm:ss") + " UTC");
-        content.AppendLine("**LLM Provider:** " + post.LlmProvider);
-
-        if (!string.IsNullOrEmpty(post.GeneratedTitle))
-        {
-            content.AppendLine("**Generated Title:** " + post.GeneratedTitle);
-        }
-
-        if (post.Hashtags.Any())
-        {
-            content.AppendLine("**Hashtags:** " + string.Join(", ", post.Hashtags.Select(h => "#" + h)));
-        }
-
-        content.AppendLine("**Views:** " + post.Views);
-        content.AppendLine("**Reactions:** " + post.Reactions);
-        content.AppendLine("**Forwards:** " + post.TotalForwards);
-        content.AppendLine();
-        content.AppendLine(post.Content);
-
-        return content.ToString();
-    }
-
-    private async Task SaveProcessingSummaryAsync(LlmProcessingSummary summary, string outputDirectory)
+    private static async Task SaveProcessingSummaryAsync(LlmProcessingSummary summary, string outputDirectory)
     {
         var summaryPath = Path.Combine(outputDirectory, "llm_processing_summary.json");
         var options = new JsonSerializerOptions { WriteIndented = true };
@@ -284,7 +270,46 @@ public class LlmService : ILlmService, IDisposable
         await File.WriteAllTextAsync(summaryPath, json);
     }
 
+    /// <summary>Calls the configured provider, retrying transient network failures with exponential backoff.</summary>
     private async Task<string> CallLlmAsync(string prompt)
+    {
+        var attempts = Math.Max(1, _config.MaxRetries + 1);
+
+        for (var attempt = 1; ; attempt++)
+        {
+            try
+            {
+                return await CallProviderAsync(prompt);
+            }
+            catch (Exception ex) when (attempt < attempts && IsTransient(ex))
+            {
+                var delay = TimeSpan.FromSeconds(Math.Min(30, Math.Pow(2, attempt)));
+                Console.WriteLine("⚠️ LLM call failed (" + ex.Message + "); retrying in " + delay.TotalSeconds + "s (" + attempt + "/" + (attempts - 1) + ")");
+                await Task.Delay(delay);
+            }
+        }
+    }
+
+    internal static bool IsTransient(Exception ex)
+    {
+        for (var current = ex; current != null; current = current.InnerException)
+        {
+            switch (current)
+            {
+                case HttpRequestException { StatusCode: null }:
+                case HttpRequestException { StatusCode: System.Net.HttpStatusCode.TooManyRequests }:
+                case HttpRequestException { StatusCode: >= System.Net.HttpStatusCode.InternalServerError }:
+                case TaskCanceledException:
+                case TimeoutException:
+                case IOException:
+                    return true;
+            }
+        }
+
+        return false;
+    }
+
+    private async Task<string> CallProviderAsync(string prompt)
     {
         switch (_config.Provider.ToLowerInvariant())
         {
@@ -316,86 +341,72 @@ public class LlmService : ILlmService, IDisposable
 
     private async Task<string> CallOllamaAsync(string prompt)
     {
-        try
+        var requestBody = new
         {
-            var requestBody = new
+            model = _config.ModelName,
+            prompt,
+            stream = false,
+            options = new
             {
-                model = _config.ModelName,
-                prompt,
-                stream = false,
-                options = new
-                {
-                    temperature = _config.Temperature,
-                    num_predict = _config.MaxTokens
-                }
-            };
+                temperature = _config.Temperature,
+                num_predict = _config.MaxTokens
+            }
+        };
 
-            var json = JsonSerializer.Serialize(requestBody);
-            var content = new StringContent(json, Encoding.UTF8, "application/json");
+        var json = JsonSerializer.Serialize(requestBody);
+        using var content = new StringContent(json, Encoding.UTF8, "application/json");
 
-            var response = await _httpClient.PostAsync(_config.BaseUrl + "/api/generate", content);
-            response.EnsureSuccessStatusCode();
+        using var response = await _httpClient.PostAsync(_config.BaseUrl + "/api/generate", content);
+        response.EnsureSuccessStatusCode();
 
-            var responseJson = await response.Content.ReadAsStringAsync();
-            using var document = JsonDocument.Parse(responseJson);
+        var responseJson = await response.Content.ReadAsStringAsync();
+        using var document = JsonDocument.Parse(responseJson);
 
-            return document.RootElement.GetProperty("response").GetString() ?? string.Empty;
-        }
-        catch (Exception ex)
-        {
-            throw new InvalidOperationException("Ollama API call failed.", ex);
-        }
+        return document.RootElement.GetProperty("response").GetString() ?? string.Empty;
     }
 
     private async Task<string> CallDeepSeekAsync(string prompt)
     {
-        try
+        var baseUrl = string.IsNullOrEmpty(_config.BaseUrl) ? "https://api.deepseek.com/v1" : _config.BaseUrl;
+
+        var requestBody = new
         {
-            var baseUrl = string.IsNullOrEmpty(_config.BaseUrl) ? "https://api.deepseek.com/v1" : _config.BaseUrl;
-
-            var requestBody = new
+            model = _config.ModelName,
+            messages = new[]
             {
-                model = _config.ModelName,
-                messages = new[]
-                {
-                    new { role = "user", content = prompt }
-                },
-                max_tokens = _config.MaxTokens,
-                temperature = _config.Temperature,
-                stream = false
-            };
+                new { role = "user", content = prompt }
+            },
+            max_tokens = _config.MaxTokens,
+            temperature = _config.Temperature,
+            stream = false
+        };
 
-            var json = JsonSerializer.Serialize(requestBody);
-            var content = new StringContent(json, Encoding.UTF8, "application/json");
+        var json = JsonSerializer.Serialize(requestBody);
+        using var content = new StringContent(json, Encoding.UTF8, "application/json");
 
-            var response = await _httpClient.PostAsync(baseUrl + "/chat/completions", content);
-            var responseContent = await response.Content.ReadAsStringAsync();
+        using var response = await _httpClient.PostAsync(baseUrl + "/chat/completions", content);
+        var responseContent = await response.Content.ReadAsStringAsync();
 
-            if (!response.IsSuccessStatusCode)
-            {
-                throw new HttpRequestException(
-                    $"DeepSeek API call failed: {response.StatusCode} - {responseContent}",
-                    inner: null,
-                    response.StatusCode);
-            }
-
-            using var document = JsonDocument.Parse(responseContent);
-            var choices = document.RootElement.GetProperty("choices");
-            if (choices.GetArrayLength() > 0)
-            {
-                var message = choices[0].GetProperty("message");
-                return message.GetProperty("content").GetString() ?? string.Empty;
-            }
-
-            return string.Empty;
-        }
-        catch (Exception ex) when (ex is not HttpRequestException)
+        if (!response.IsSuccessStatusCode)
         {
-            throw new InvalidOperationException("DeepSeek API call failed.", ex);
+            throw new HttpRequestException(
+                $"DeepSeek API call failed: {response.StatusCode} - {responseContent}",
+                inner: null,
+                response.StatusCode);
         }
+
+        using var document = JsonDocument.Parse(responseContent);
+        var choices = document.RootElement.GetProperty("choices");
+        if (choices.GetArrayLength() > 0)
+        {
+            var message = choices[0].GetProperty("message");
+            return message.GetProperty("content").GetString() ?? string.Empty;
+        }
+
+        return string.Empty;
     }
 
-    private string CleanContentForPrompt(string content)
+    internal static string CleanContentForPrompt(string content)
     {
         if (string.IsNullOrWhiteSpace(content))
             return string.Empty;
@@ -410,13 +421,19 @@ public class LlmService : ILlmService, IDisposable
 
         if (content.Length > 1000)
         {
-            content = content[..1000] + "...";
+            var cut = 1000;
+            if (char.IsHighSurrogate(content[cut - 1]))
+            {
+                cut--;
+            }
+
+            content = content[..cut] + "...";
         }
 
         return content;
     }
 
-    private string CleanGeneratedTitle(string title)
+    internal static string CleanGeneratedTitle(string title)
     {
         if (string.IsNullOrWhiteSpace(title))
             return string.Empty;
@@ -434,7 +451,7 @@ public class LlmService : ILlmService, IDisposable
         return title;
     }
 
-    private List<string> ParseHashtagsFromResponse(string response, int maxHashtags)
+    internal static List<string> ParseHashtagsFromResponse(string response, int maxHashtags)
     {
         var hashtags = new List<string>();
 
@@ -443,7 +460,7 @@ public class LlmService : ILlmService, IDisposable
 
         var lines = response.Split('\n', StringSplitOptions.RemoveEmptyEntries);
 
-        hashtags.AddRange(lines.Take(maxHashtags)
+        hashtags.AddRange(lines
             .Select(line => line.Trim()
                 .Replace("#", "")
                 .Replace("-", "")

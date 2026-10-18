@@ -1,21 +1,20 @@
 # Security Policy
 
-## Supported Versions
+Telescribe is a personal-use console tool, so only the latest release on the `main` branch receives security fixes.
 
-Use this section to tell people about which versions of your project are
-currently being supported with security updates.
+## Reporting a vulnerability
 
-| Version | Supported          |
-| ------- | ------------------ |
-| 5.1.x   | :white_check_mark: |
-| 5.0.x   | :x:                |
-| 4.0.x   | :white_check_mark: |
-| < 4.0   | :x:                |
+Please **do not** open a public issue for security problems. Use GitHub's private reporting instead:
+[Report a vulnerability](https://github.com/aminmesbahi/telescribe/security/advisories/new).
 
-## Reporting a Vulnerability
+Include what you found, how to reproduce it, and the version/commit you tested. You can expect an acknowledgement
+within a week; fixes are released on `main` and credited in the release notes unless you prefer otherwise.
 
-Use this section to tell people how to report a vulnerability.
+## Things worth knowing
 
-Tell them where to go, how often they can expect to get an update on a
-reported vulnerability, what to expect if the vulnerability is accepted or
-declined, etc.
+- Telescribe handles **your Telegram API credentials and login session** (`WTelegram.session`). Treat that file like a
+  password: it is git-ignored and must never be committed or shared.
+- Put secrets in [user secrets](https://learn.microsoft.com/aspnet/core/security/app-secrets) or environment variables
+  (`TelegramConfig__ApiHash`, `TelegramConfig__Llm__ApiKey`, ...) rather than in a committed `appsettings.json`.
+- Exported channel content is treated as untrusted when a static site is generated: titles and text are HTML-escaped,
+  raw HTML in posts is not passed through, and only `http`, `https`, `mailto` and `tel` links are kept.

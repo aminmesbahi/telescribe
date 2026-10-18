@@ -1,0 +1,11 @@
+**/bin/
+**/obj/
+**/exports/
+**/.vs/
+**/.idea/
+**/appsettings.json
+**/appsettings.*.json
+!**/appsettings.example.json
+**/*.session
+**/*.user
+Telescribe.Tests/

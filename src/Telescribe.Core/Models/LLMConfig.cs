@@ -6,7 +6,7 @@ public class LlmConfig
     public string Provider { get; set; } = "OpenAI"; // OpenAI, DeepSeek, Ollama
     public string ApiKey { get; set; } = string.Empty;
     public string BaseUrl { get; set; } = string.Empty; // For Ollama or custom endpoints
-    public string ModelName { get; set; } = "gpt-5-nano"; // Model to use
+    public string ModelName { get; set; } = "gpt-4o-mini"; // Model to use
     public bool GenerateTitle { get; set; } = true;
     public bool ExtractHashtags { get; set; } = true;
     public int MaxHashtags { get; set; } = 5;

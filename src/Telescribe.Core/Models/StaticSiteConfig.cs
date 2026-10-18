@@ -2,7 +2,7 @@ namespace Telescribe.Core.Models;
 
 public class StaticSiteConfig
 {
-    public string TemplateName { get; set; } = "default";
+    public string TemplateName { get; set; } = "en";
     public string SiteTitle { get; set; } = "Telescribe";
     public string Subtitle { get; set; } = "Telegram Channel Archive";
     public string HeaderIcon { get; set; } = "📱";
@@ -13,12 +13,25 @@ public class StaticSiteConfig
     public int SocialImageHeight { get; set; }
     /// <summary>Twitter/X handle, including the leading @, used for Twitter Card metadata.</summary>
     public string TwitterHandle { get; set; } = "";
-    /// <summary>Open Graph locale such as en_US or fa_IR.</summary>
-    public string OpenGraphLocale { get; set; } = "en_US";
+    /// <summary>Open Graph locale such as en_US or fa_IR. Empty uses the template's locale.</summary>
+    public string OpenGraphLocale { get; set; } = "";
     public bool OpenBrowserAfterGeneration { get; set; } = true;
+    /// <summary>
+    /// How many of the newest posts are listed on the index page. Every post still gets its own page and
+    /// sitemap entry. Use 0 to list all posts.
+    /// </summary>
     public int MaxPostsInIndex { get; set; } = 50;
     /// <summary>Base URL used in sitemap.xml (e.g. https://example.com). Leave empty to skip absolute URLs.</summary>
     public string SiteBaseUrl { get; set; } = "";
     /// <summary>When true, posts with no text content (polls, media-only) are excluded from the generated site.</summary>
     public bool SkipEmptyContentPosts { get; set; } = false;
+
+    /// <summary>Author name used in structured data (JSON-LD). Falls back to <see cref="SiteTitle"/> when empty.</summary>
+    public string AuthorName { get; set; } = "";
+    /// <summary>Optional author profile URL used in structured data.</summary>
+    public string AuthorUrl { get; set; } = "";
+    /// <summary>Publisher name used in structured data. Falls back to <see cref="SiteTitle"/> when empty.</summary>
+    public string PublisherName { get; set; } = "";
+    /// <summary>Optional profile URLs (X, LinkedIn, ...) listed as <c>sameAs</c> in structured data.</summary>
+    public List<string> SameAs { get; set; } = [];
 }

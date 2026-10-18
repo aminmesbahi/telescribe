@@ -1,27 +1,35 @@
 global using static System.Console;
 using Microsoft.Extensions.Configuration;
 using System.Diagnostics;
-using System.Globalization;
-using System.Net;
 using System.Reflection;
 using System.Text;
-using System.Text.Json;
-using System.Text.RegularExpressions;
 using Telescribe.Core.Models;
 using Telescribe.Core.Services;
-using PostData = Telescribe.Core.Services.PostData;
+using Telescribe.Core.Site;
 
 namespace Telescribe.Console;
 
 public static class Program
 {
-    public static async Task Main(string[] args)
+    private const string ExportDirectory = "./exports";
+
+    public static async Task<int> Main(string[] args)
     {
+        try
+        {
+            OutputEncoding = Encoding.UTF8;
+        }
+        catch (IOException)
+        {
+            // No console attached (redirected output); nothing to configure.
+        }
+
         WriteLine("🔭 Telescribe - Telegram Channel Exporter");
 
         var configuration = new ConfigurationBuilder()
             .SetBasePath(AppDomain.CurrentDomain.BaseDirectory)
             .AddJsonFile("appsettings.json", optional: true, reloadOnChange: false)
+            .AddUserSecrets(Assembly.GetExecutingAssembly(), optional: true)
             .AddEnvironmentVariables()
             .Build();
 
@@ -29,20 +37,13 @@ public static class Program
         if (config == null)
         {
             WriteLine("❌ Configuration validation failed. Please check your settings.");
-            return;
+            return 1;
         }
 
-        if (args.Length > 0 && args[0] == "static")
+        if (args.Length > 0)
         {
-            await GenerateStaticSite(config);
-            return;
+            return await RunCommandAsync(args[0], config) ? 0 : 1;
         }
-        if (args.Length > 0 && args[0] == "reports")
-        {
-            await GenerateHtmlReports();
-            return;
-        }
-
 
         while (true)
         {
@@ -57,6 +58,14 @@ public static class Program
 
                 case "2":
                     await UpdateExistingExports(config);
+                    break;
+
+                case "3":
+                    WriteLine("🤖 AI content processing is not wired into the menu yet.");
+                    break;
+
+                case "4":
+                    WriteLine("🌐 WordPress integration is not wired into the menu yet.");
                     break;
 
                 case "5":
@@ -76,7 +85,7 @@ public static class Program
                 case "exit":
                 case "quit":
                     WriteLine("👋 Goodbye! Thanks for using Telescribe!");
-                    return;
+                    return 0;
 
                 default:
                     WriteLine("❌ Invalid choice. Please enter a number from 1-8.");
@@ -84,13 +93,40 @@ public static class Program
             }
 
             WriteLine("\n⏱️  Press any key to return to main menu...");
-            ReadKey();
+            if (IsInputRedirected)
+            {
+                ReadLine();
+            }
+            else
+            {
+                ReadKey(intercept: true);
+            }
+        }
+    }
+
+    private static async Task<bool> RunCommandAsync(string command, TelegramConfig config)
+    {
+        switch (command.ToLowerInvariant())
+        {
+            case "static":
+                return await GenerateStaticSite(config);
+            case "update-site":
+                return await UpdateStaticSite(config);
+            case "reports":
+                return await GenerateHtmlReports();
+            default:
+                WriteLine($"❌ Unknown command '{command}'. Available: static, update-site, reports (or run without arguments for the menu).");
+                return false;
         }
     }
 
     static void DisplayMainMenu()
     {
-        Clear();
+        if (!IsOutputRedirected)
+        {
+            Clear();
+        }
+
         WriteLine("╔════════════════════════════════════════════════════════════════╗");
         WriteLine("║                          🔭 Telescribe                         ║");
         WriteLine("║                   Telegram Channel Exporter                    ║");
@@ -123,7 +159,7 @@ public static class Program
                 config.ApiId == 0 ||
                 string.IsNullOrEmpty(config.ApiHash))
             {
-                WriteLine("❌ Missing required Telegram configuration. Please check appsettings.json:");
+                WriteLine("❌ Missing required Telegram configuration. Set these in appsettings.json, user secrets or environment variables (TelegramConfig__ApiId, ...):");
                 WriteLine("   • PhoneNumber");
                 WriteLine("   • ChannelId");
                 WriteLine("   • ApiId");
@@ -147,17 +183,14 @@ public static class Program
 
         try
         {
-            var telegramService = TelegramServiceFactory.CreateService(config);
+            using var telegramService = TelegramServiceFactory.CreateService(config);
 
             WriteLine("🔐 Authenticating with Telegram...");
             var authenticated = await telegramService.AuthenticateAsync();
 
             if (!authenticated)
             {
-                WriteLine("❌ Authentication failed! Please check your configuration.");
-                WriteLine("   • Verify your API ID and API Hash from https://my.telegram.org/");
-                WriteLine("   • Ensure your phone number is in international format (e.g., +1234567890)");
-                WriteLine("   • Check that your channel ID or username is correct");
+                PrintAuthenticationHelp();
                 return;
             }
 
@@ -177,7 +210,7 @@ public static class Program
 
             if (result.MediaFilesCount > 0)
             {
-                WriteLine($"   🖼️ Media files downloaded: {result.MediaFilesCount}");
+                WriteLine($"   🖼️ Media files: {result.MediaFilesCount}");
             }
         }
         catch (Exception ex)
@@ -194,7 +227,7 @@ public static class Program
 
         try
         {
-            var telegramService = TelegramServiceFactory.CreateService(config);
+            using var telegramService = TelegramServiceFactory.CreateService(config);
 
             WriteLine("📊 Reading last export summary...");
             var lastExportSummary = await telegramService.GetLastExportSummaryAsync();
@@ -213,10 +246,7 @@ public static class Program
 
             if (!authenticated)
             {
-                WriteLine("❌ Authentication failed! Please check your configuration.");
-                WriteLine("   • Verify your API ID and API Hash from https://my.telegram.org/");
-                WriteLine("   • Ensure your phone number is in international format (e.g., +1234567890)");
-                WriteLine("   • Check that your channel ID or username is correct");
+                PrintAuthenticationHelp();
                 return;
             }
 
@@ -224,16 +254,17 @@ public static class Program
             WriteLine("🔍 Searching for new posts...");
             var updateSummary = await telegramService.UpdateExistingExportsAsync(lastPostDate);
 
+            if (updateSummary.Status != "Completed")
+            {
+                WriteLine($"❌ Update failed: {updateSummary.ErrorMessage}");
+                return;
+            }
+
             if (updateSummary.NewPostsCount == 0)
             {
-                if (updateSummary.RefreshedPostsCount == 0)
-                {
-                    WriteLine("✅ No new posts found. Export is already up to date!");
-                }
-                else
-                {
-                    WriteLine($"✅ No new posts found. Refreshed metadata/content for {updateSummary.RefreshedPostsCount} existing posts.");
-                }
+                WriteLine(updateSummary.RefreshedPostsCount == 0
+                    ? "✅ No new posts found. Export is already up to date!"
+                    : $"✅ No new posts found. Refreshed metadata/content for {updateSummary.RefreshedPostsCount} existing posts.");
                 return;
             }
 
@@ -248,19 +279,12 @@ public static class Program
 
             if (updateSummary.MediaFilesCount > 0)
             {
-                WriteLine($"   🖼️ Media files downloaded: {updateSummary.MediaFilesCount}");
+                WriteLine($"   🖼️ Media files: {updateSummary.MediaFilesCount}");
             }
 
-            if (config.Llm.EnableProcessing && updateSummary.NewPostsCount > 0)
+            if (config.Llm.EnableProcessing)
             {
-                Write("\n🤖 Would you like to process the new posts with AI? (y/n): ");
-                var llmChoice = ReadLine()?.Trim().ToLower();
-
-                if (llmChoice == "y" || llmChoice == "yes")
-                {
-                    WriteLine("🤖 AI processing feature coming soon!");
-                    WriteLine("💡 Please check back in future updates for AI-powered content enhancement.");
-                }
+                WriteLine("\n🤖 AI processing of new posts is not available from the menu yet.");
             }
         }
         catch (Exception ex)
@@ -270,990 +294,211 @@ public static class Program
         }
     }
 
-    static async Task GenerateHtmlReports()
+    static void PrintAuthenticationHelp()
+    {
+        WriteLine("❌ Authentication failed! Please check your configuration.");
+        WriteLine("   • Verify your API ID and API Hash from https://my.telegram.org/");
+        WriteLine("   • Ensure your phone number is in international format (e.g., +1234567890)");
+        WriteLine("   • Check that your channel ID or username is correct");
+    }
+
+    static async Task<bool> GenerateHtmlReports()
     {
         WriteLine("\n📊 Generating Analytics Reports...");
         WriteLine(new string('─', 50));
 
-        var exportDir = "./exports";
-        if (!Directory.Exists(exportDir))
+        if (!Directory.Exists(ExportDirectory))
         {
             WriteLine("❌ Export directory not found. Please run export first.");
-            return;
+            return false;
         }
 
-        var summaryPath = Path.Combine(exportDir, "summary.json");
-        if (!File.Exists(summaryPath))
+        var reportsTemplatesPath = ResolveTemplatesPath("reports");
+        if (reportsTemplatesPath == null)
         {
-            WriteLine("❌ Export summary not found. Please run export first.");
-            return;
+            return false;
         }
 
-        var summaryJson = await File.ReadAllTextAsync(summaryPath);
-        var options = new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.CamelCase };
-        var summary = JsonSerializer.Deserialize<ExportSummary>(summaryJson, options);
-
-        if (summary?.Posts == null)
+        try
         {
-            WriteLine("❌ Invalid summary data.");
-            return;
+            var reportPath = await new ReportService(reportsTemplatesPath).GenerateAsync(ExportDirectory);
+
+            WriteLine("✅ Analytics report generated successfully!");
+            WriteLine($"   📄 Report saved to: {reportPath}");
+            WriteLine("   🌐 Open in browser to view detailed insights");
+            return true;
         }
-
-        var reportsDir = Path.Combine(exportDir, "reports");
-        Directory.CreateDirectory(reportsDir);
-
-        WriteLine($"🔍 Analyzing {summary.Posts.Count} posts...");
-
-        var popularPosts = summary.Posts
-            .OrderByDescending(p => p.Views + p.Reactions + p.TotalForwards)
-            .Take(20)
-            .ToList();
-
-        var recentPosts = summary.Posts
-            .OrderByDescending(p => p.CreatedAt)
-            .Take(10)
-            .ToList();
-
-        var mostReacted = summary.Posts
-            .OrderByDescending(p => p.Reactions)
-            .Take(10)
-            .ToList();
-
-        var mostForwarded = summary.Posts
-            .OrderByDescending(p => p.TotalForwards)
-            .Take(10)
-            .ToList();
-
-        var baseDirectory = Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location) ?? Directory.GetCurrentDirectory();
-        var reportsTemplatesPath = Path.Combine(baseDirectory, "templates", "reports");
-        
-        if (!Directory.Exists(reportsTemplatesPath))
+        catch (FileNotFoundException ex)
         {
-            reportsTemplatesPath = Path.Combine("templates", "reports");
+            WriteLine($"❌ {ex.Message}");
+            return false;
         }
-        
-        if (!Directory.Exists(reportsTemplatesPath))
-        {
-            WriteLine($"❌ Reports template directory not found: {reportsTemplatesPath}");
-            WriteLine("Available template directories:");
-            var templateBaseDir = Path.Combine(baseDirectory, "templates");
-            if (!Directory.Exists(templateBaseDir))
-                templateBaseDir = "templates";
-            
-            if (Directory.Exists(templateBaseDir))
-            {
-                foreach (var dir in Directory.GetDirectories(templateBaseDir))
-                {
-                    WriteLine($"   - {Path.GetFileName(dir)}");
-                }
-            }
-            return;
-        }
-
-        var reportGenerator = new SiteGeneratorService(reportsTemplatesPath);
-
-        var statsCards = reportGenerator.RenderTemplate("stats-cards.html", new Dictionary<string, string>
-        {
-            ["totalPosts"] = summary.TotalPosts.ToString("N0"),
-            ["totalViews"] = summary.Posts.Sum(p => p.Views).ToString("N0"),
-            ["totalReactions"] = summary.Posts.Sum(p => p.Reactions).ToString("N0"),
-            ["totalForwards"] = summary.Posts.Sum(p => p.TotalForwards).ToString("N0")
-        });
-
-        var popularPostsHtml = string.Join("", popularPosts.Select(p => 
-            reportGenerator.RenderTemplate("popular-post-row.html", new Dictionary<string, string>
-            {
-                ["postId"] = p.PostId.ToString(),
-                ["date"] = p.CreatedAt.ToString("yyyy-MM-dd"),
-                ["views"] = p.Views.ToString("N0"),
-                ["reactions"] = p.Reactions.ToString("N0"),
-                ["forwards"] = p.TotalForwards.ToString("N0"),
-                ["contentPreview"] = string.IsNullOrEmpty(p.ContentPreview) ? "No preview available" : p.ContentPreview
-            })));
-
-        var recentPostsHtml = string.Join("", recentPosts.Select(p => 
-            reportGenerator.RenderTemplate("recent-post-row.html", new Dictionary<string, string>
-            {
-                ["postId"] = p.PostId.ToString(),
-                ["date"] = p.CreatedAt.ToString("yyyy-MM-dd"),
-                ["views"] = p.Views.ToString("N0"),
-                ["reactions"] = p.Reactions.ToString("N0"),
-                ["forwards"] = p.TotalForwards.ToString("N0"),
-                ["contentPreview"] = string.IsNullOrEmpty(p.ContentPreview) ? "No preview available" : p.ContentPreview
-            })));
-
-        var reactedPostsHtml = string.Join("", mostReacted.Select(p => 
-            reportGenerator.RenderTemplate("reacted-post-row.html", new Dictionary<string, string>
-            {
-                ["postId"] = p.PostId.ToString(),
-                ["date"] = p.CreatedAt.ToString("yyyy-MM-dd"),
-                ["reactions"] = p.Reactions.ToString("N0"),
-                ["views"] = p.Views.ToString("N0"),
-                ["forwards"] = p.TotalForwards.ToString("N0"),
-                ["contentPreview"] = string.IsNullOrEmpty(p.ContentPreview) ? "No preview available" : p.ContentPreview
-            })));
-
-        var forwardedPostsHtml = string.Join("", mostForwarded.Select(p => 
-            reportGenerator.RenderTemplate("forwarded-post-row.html", new Dictionary<string, string>
-            {
-                ["postId"] = p.PostId.ToString(),
-                ["date"] = p.CreatedAt.ToString("yyyy-MM-dd"),
-                ["forwards"] = p.TotalForwards.ToString("N0"),
-                ["views"] = p.Views.ToString("N0"),
-                ["reactions"] = p.Reactions.ToString("N0"),
-                ["contentPreview"] = string.IsNullOrEmpty(p.ContentPreview) ? "No preview available" : p.ContentPreview
-            })));
-
-        var htmlReport = reportGenerator.RenderTemplate("analytics.html", new Dictionary<string, string>
-        {
-            ["statsCards"] = statsCards,
-            ["popularPosts"] = popularPostsHtml,
-            ["recentPosts"] = recentPostsHtml,
-            ["reactedPosts"] = reactedPostsHtml,
-            ["forwardedPosts"] = forwardedPostsHtml,
-            ["generatedDate"] = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss") + " UTC"
-        });
-
-        var reportPath = Path.Combine(reportsDir, "analytics_report.html");
-        await File.WriteAllTextAsync(reportPath, htmlReport);
-
-        WriteLine("✅ Analytics report generated successfully!");
-        WriteLine($"   📄 Report saved to: {reportPath}");
-        WriteLine("   🎨 Using template-based generation");
-        WriteLine("   🌐 Open in browser to view detailed insights");
     }
 
-    static async Task GenerateStaticSite(TelegramConfig config)
+    static async Task<bool> GenerateStaticSite(TelegramConfig config)
     {
         WriteLine("\n🏗️ Building Static Website...");
         WriteLine(new string('─', 50));
 
-        var exportDir = "./exports";
-        if (!Directory.Exists(exportDir))
+        if (!Directory.Exists(ExportDirectory))
         {
             WriteLine("❌ Export directory not found. Please run export first.");
-            return;
+            return false;
         }
 
-        var markdownFiles = Directory.GetFiles(exportDir, "*.md")
-            .Where(f => !Path.GetFileName(f).Equals("summary.json", StringComparison.OrdinalIgnoreCase))
-            .ToArray();
-
-        if (markdownFiles.Length == 0)
+        var templatesPath = ResolveTemplatesPath(config.StaticSite.TemplateName);
+        if (templatesPath == null)
         {
-            WriteLine("❌ No markdown files found for site generation.");
-            return;
+            return false;
         }
 
-        var siteDir = Path.Combine(exportDir, $"website_{DateTime.Now:yyyyMMdd_HHmmss}");
-        Directory.CreateDirectory(siteDir);
-        Directory.CreateDirectory(Path.Combine(siteDir, "posts"));
-        Directory.CreateDirectory(Path.Combine(siteDir, "assets"));
-
-        WriteLine($"🏗️ Creating website structure in: {siteDir}");
-        WriteLine($"📄 Processing {markdownFiles.Length} posts...");
+        var siteDir = Path.Combine(ExportDirectory, $"website_{DateTime.Now:yyyyMMdd_HHmmss}");
+        WriteLine($"🏗️ Creating website in: {siteDir}");
         WriteLine($"🎨 Using template: {config.StaticSite.TemplateName}");
 
-        var baseDirectory = Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location) ?? Directory.GetCurrentDirectory();
-        var templatesPath = Path.Combine(baseDirectory, "templates", config.StaticSite.TemplateName);
-        
-        if (!Directory.Exists(templatesPath))
-        {
-            templatesPath = Path.Combine("templates", config.StaticSite.TemplateName);
-        }
-        
-        if (!Directory.Exists(templatesPath))
-        {
-            WriteLine($"❌ Template directory not found: {templatesPath}");
-            WriteLine("Available templates:");
-            var templateDir = Path.Combine(baseDirectory, "templates");
-            if (!Directory.Exists(templateDir))
-                templateDir = "templates";
-            
-            if (Directory.Exists(templateDir))
-            {
-                foreach (var dir in Directory.GetDirectories(templateDir))
-                {
-                    WriteLine($"   - {Path.GetFileName(dir)}");
-                }
-            }
-            return;
-        }
-
-        var siteGenerator = new SiteGeneratorService(templatesPath);
-
-        var assetsSource = Path.Combine(templatesPath, "style.css");
-        var cssContent = File.Exists(assetsSource) ? await File.ReadAllTextAsync(assetsSource) : "";
-        var faviconSource = Path.Combine(templatesPath, "favicon.svg");
-        var socialPreviewSource = Path.Combine(templatesPath, "social-preview.png");
-        if (File.Exists(assetsSource))
-        {
-            var assetsTarget = Path.Combine(siteDir, "assets", "style.css");
-            File.Copy(assetsSource, assetsTarget, true);
-            WriteLine("✅ Copied template assets");
-        }
-
-        if (File.Exists(faviconSource))
-            File.Copy(faviconSource, Path.Combine(siteDir, "favicon.svg"), overwrite: true);
-        if (File.Exists(socialPreviewSource))
-            File.Copy(socialPreviewSource, Path.Combine(siteDir, "social-preview.png"), overwrite: true);
-
-        var mediaSource = Path.Combine(exportDir, "media");
-        if (Directory.Exists(mediaSource))
-        {
-            var mediaTarget = Path.Combine(siteDir, "media");
-            Directory.CreateDirectory(mediaTarget);
-            foreach (var mediaFile in Directory.GetFiles(mediaSource, "*", SearchOption.AllDirectories))
-            {
-                var relativePath = Path.GetRelativePath(mediaSource, mediaFile);
-                var destFile = Path.Combine(mediaTarget, relativePath);
-                Directory.CreateDirectory(Path.GetDirectoryName(destFile)!);
-                File.Copy(mediaFile, destFile, overwrite: true);
-            }
-            var mediaCount = Directory.GetFiles(mediaTarget, "*", SearchOption.AllDirectories).Length;
-            WriteLine($"✅ Copied {mediaCount} media file(s) to site");
-        }
-        else
-        {
-            WriteLine("ℹ️  No media folder found — skipping media copy");
-        }
-
-        var posts = new List<PostData>();
-
-        foreach (var file in markdownFiles)
-        {
-            var fileName = Path.GetFileNameWithoutExtension(file);
-            var content = await File.ReadAllTextAsync(file);
-            var title = ExtractTitle(content) ?? fileName;
-            var preview = ExtractPreview(content);
-            var dateCreated = ExtractCreationDate(content);
-            var (views, reactions, forwards) = ExtractMetadata(content);
-            var htmlContent = ConvertMarkdownToHtml(content, title);
-            var isNoContent = IsNoContentPost(content);
-
-            var postData = new PostData
-            {
-                Filename = fileName,
-                Title = title,
-                Preview = isNoContent ? "📊 Poll or media-only post" : preview,
-                Content = htmlContent,
-                Date = dateCreated,
-                Views = views,
-                Reactions = reactions,
-                Forwards = forwards,
-                IsNoContent = isNoContent
-            };
-
-            posts.Add(postData);
-        }
-
-        var sortedPosts = posts
-            .Where(p => !config.StaticSite.SkipEmptyContentPosts || !p.IsNoContent)
-            .OrderByDescending(p => p.Date)
-            .Take(config.StaticSite.MaxPostsInIndex)
-            .ToList();
-
-        WriteLine($"📝 Processing {sortedPosts.Count} posts (sorted by date, newest first)...");
-
-        foreach (var post in sortedPosts)
-        {
-            var postHtml = InlineCss(siteGenerator.RenderPostPage(config.StaticSite, post), cssContent);
-            var postPath = Path.Combine(siteDir, "posts", $"{post.Filename}.html");
-            await WriteUtf8FileAsync(postPath, postHtml);
-        }
-
-        var indexHtml = InlineCss(siteGenerator.RenderIndexPage(config.StaticSite, sortedPosts, DateTime.Now), cssContent);
-        var indexPath = Path.Combine(siteDir, "index.html");
-        await WriteUtf8FileAsync(indexPath, indexHtml);
-
-        var aboutTemplatePath = Path.Combine(templatesPath, "about.html");
-        bool hasAboutPage = File.Exists(aboutTemplatePath);
-        if (hasAboutPage)
-        {
-            var aboutHtml = InlineCss(siteGenerator.RenderTemplate("about.html", new Dictionary<string, string>
-            {
-                ["pageTitle"]   = BuildAboutPageTitle(config.StaticSite),
-                ["siteTitle"]   = config.StaticSite.SiteTitle,
-                ["subtitle"]    = config.StaticSite.Subtitle,
-                ["headerIcon"]  = config.StaticSite.HeaderIcon,
-                ["description"] = config.StaticSite.Description,
-                ["faviconPath"] = "favicon.svg",
-                ["canonicalUrl"] = string.IsNullOrWhiteSpace(config.StaticSite.SiteBaseUrl)
-                    ? string.Empty
-                    : $"{config.StaticSite.SiteBaseUrl.Trim().TrimEnd('/')}/about.html",
-                ["canonicalTag"] = string.IsNullOrWhiteSpace(config.StaticSite.SiteBaseUrl)
-                    ? string.Empty
-                    : $"<link rel=\"canonical\" href=\"{config.StaticSite.SiteBaseUrl.Trim().TrimEnd('/')}/about.html\">",
-                ["socialMetaTags"] = siteGenerator.BuildSocialMetaTags(
-                    config.StaticSite,
-                    BuildAboutPageTitle(config.StaticSite),
-                    config.StaticSite.Description,
-                    string.IsNullOrWhiteSpace(config.StaticSite.SiteBaseUrl)
-                        ? string.Empty
-                        : $"{config.StaticSite.SiteBaseUrl.Trim().TrimEnd('/')}/about.html"),
-                ["jsonSiteTitle"] = JsonSerializer.Serialize(config.StaticSite.SiteTitle ?? ""),
-                ["jsonSubtitle"] = JsonSerializer.Serialize(config.StaticSite.Subtitle ?? ""),
-                ["jsonDescription"] = JsonSerializer.Serialize(config.StaticSite.Description ?? ""),
-                ["jsonCanonicalUrl"] = JsonSerializer.Serialize(
-                    string.IsNullOrWhiteSpace(config.StaticSite.SiteBaseUrl)
-                        ? string.Empty
-                        : $"{config.StaticSite.SiteBaseUrl.Trim().TrimEnd('/')}/about.html")
-            }), cssContent);
-            await File.WriteAllTextAsync(Path.Combine(siteDir, "about.html"), aboutHtml);
-            WriteLine("✅ Generated about.html");
-        }
-
-        string? sitemapPath = null;
-        string? robotsPath = null;
-        if (!string.IsNullOrWhiteSpace(config.StaticSite.SiteBaseUrl))
-        {
-            var sitemapXml = siteGenerator.GenerateSitemap(config.StaticSite, sortedPosts, config.StaticSite.SiteBaseUrl, hasAboutPage);
-            sitemapPath = Path.Combine(siteDir, "sitemap.xml");
-            await File.WriteAllTextAsync(sitemapPath, sitemapXml);
-
-            var robotsTxt = siteGenerator.GenerateRobotsTxt(config.StaticSite.SiteBaseUrl);
-            robotsPath = Path.Combine(siteDir, "robots.txt");
-            await File.WriteAllTextAsync(robotsPath, robotsTxt);
-        }
-        else
-        {
-            WriteLine("⚠️  StaticSite:SiteBaseUrl is not configured; canonical tags, sitemap.xml, and robots.txt will be skipped.");
-        }
-
-        WriteLine("✅ Static website generated successfully!");
-        WriteLine($"   🌐 Site saved to: {siteDir}");
-        WriteLine($"   📌 {sortedPosts.Count} posts generated");
-        if (sitemapPath is not null)
-            WriteLine($"   🗺️  Sitemap: {sitemapPath}");
-        if (robotsPath is not null)
-            WriteLine($"   🤖 Robots: {robotsPath}");
-        WriteLine($"   📌 Template: {config.StaticSite.TemplateName}");
-
-        if (config.StaticSite.OpenBrowserAfterGeneration)
-        {
-            var indexUrl = Path.GetFullPath(indexPath);
-            WriteLine($"   🚀 Opening browser: {indexUrl}");
-            try
-            {
-                Process.Start(new ProcessStartInfo
-                {
-                    FileName = indexUrl,
-                    UseShellExecute = true
-                });
-            }
-            catch (Exception ex)
-            {
-                WriteLine($"❌ Could not open browser: {ex.Message}");
-                WriteLine($"   Please open manually: {indexUrl}");
-            }
-        }
+        return await BuildSiteAsync(config, templatesPath, siteDir, isUpdate: false);
     }
 
-    static async Task UpdateStaticSite(TelegramConfig config)
+    static async Task<bool> UpdateStaticSite(TelegramConfig config)
     {
         WriteLine("\n🔄 Updating Static Website...");
         WriteLine(new string('─', 50));
 
-        var exportDir = "./exports";
-        if (!Directory.Exists(exportDir))
+        if (!Directory.Exists(ExportDirectory))
         {
             WriteLine("❌ Export directory not found. Please run export first.");
-            return;
+            return false;
         }
 
-        // Find the most recently created site folder
-        var siteDir = Directory.GetDirectories(exportDir, "website_*")
-            .OrderByDescending(d => d)
+        // Folder names embed a sortable timestamp, so the last one is the newest.
+        var siteDir = Directory.GetDirectories(ExportDirectory, "website_*")
+            .OrderByDescending(d => d, StringComparer.Ordinal)
             .FirstOrDefault();
 
         if (siteDir == null)
         {
             WriteLine("❌ No generated site found. Run option 6 (Static Website Builder) first.");
-            return;
+            return false;
         }
 
-        WriteLine($"📂 Updating site: {siteDir}");
-
-        var markdownFiles = Directory.GetFiles(exportDir, "*.md")
-            .Where(f => !Path.GetFileName(f).Equals("summary.json", StringComparison.OrdinalIgnoreCase))
-            .ToArray();
-
-        if (markdownFiles.Length == 0)
-        {
-            WriteLine("❌ No markdown files found.");
-            return;
-        }
-
-        var baseDirectory = Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location) ?? Directory.GetCurrentDirectory();
-        var templatesPath = Path.Combine(baseDirectory, "templates", config.StaticSite.TemplateName);
-        if (!Directory.Exists(templatesPath))
-            templatesPath = Path.Combine("templates", config.StaticSite.TemplateName);
-
-        if (!Directory.Exists(templatesPath))
-        {
-            WriteLine($"❌ Template directory not found: {templatesPath}");
-            return;
-        }
-
-        var telegramService = TelegramServiceFactory.CreateService(config);
-        UpdateSummary? exportUpdateSummary = null;
-
-        var lastExportSummary = await telegramService.GetLastExportSummaryAsync();
-        if (lastExportSummary?.Posts.Any() == true)
-        {
-            var lastPostDate = lastExportSummary.Posts.Max(p => p.CreatedAt);
-            WriteLine($"📡 Syncing exports from Telegram before rebuilding site (last export: {lastPostDate:yyyy-MM-dd HH:mm:ss} UTC)...");
-
-            var authenticated = await telegramService.AuthenticateAsync();
-            if (!authenticated)
-            {
-                WriteLine("⚠️  Telegram authentication failed. Continuing with existing exported markdown files.");
-            }
-            else
-            {
-                exportUpdateSummary = await telegramService.UpdateExistingExportsAsync(lastPostDate);
-                if (exportUpdateSummary.Status != "Completed")
-                {
-                    WriteLine($"⚠️  Export sync failed: {exportUpdateSummary.ErrorMessage}");
-                    WriteLine("   Continuing with local exported markdown files.");
-                }
-            }
-        }
-
-        var siteGenerator = new SiteGeneratorService(templatesPath);
-        var assetsSource = Path.Combine(templatesPath, "style.css");
-        var cssContent = File.Exists(assetsSource) ? await File.ReadAllTextAsync(assetsSource) : "";
-        var faviconSource = Path.Combine(templatesPath, "favicon.svg");
-        var socialPreviewSource = Path.Combine(templatesPath, "social-preview.png");
-
-        // Sync new media files (skip existing ones)
-        var mediaSource = Path.Combine(exportDir, "media");
-        var newMediaCount = 0;
-        if (Directory.Exists(mediaSource))
-        {
-            var mediaTarget = Path.Combine(siteDir, "media");
-            Directory.CreateDirectory(mediaTarget);
-            foreach (var mediaFile in Directory.GetFiles(mediaSource, "*", SearchOption.AllDirectories))
-            {
-                var relativePath = Path.GetRelativePath(mediaSource, mediaFile);
-                var destFile = Path.Combine(mediaTarget, relativePath);
-                if (!File.Exists(destFile))
-                {
-                    Directory.CreateDirectory(Path.GetDirectoryName(destFile)!);
-                    File.Copy(mediaFile, destFile);
-                    newMediaCount++;
-                }
-            }
-        }
-
-        // Build post data from all markdown files
-        var posts = new List<PostData>();
-        foreach (var file in markdownFiles)
-        {
-            var fileName = Path.GetFileNameWithoutExtension(file);
-            var content = await File.ReadAllTextAsync(file);
-            var title = ExtractTitle(content) ?? fileName;
-            var preview = ExtractPreview(content);
-            var dateCreated = ExtractCreationDate(content);
-            var (views, reactions, forwards) = ExtractMetadata(content);
-            var htmlContent = ConvertMarkdownToHtml(content, title);
-            var isNoContent = IsNoContentPost(content);
-
-            posts.Add(new PostData
-            {
-                Filename = fileName,
-                Title = title,
-                Preview = isNoContent ? "📊 Poll or media-only post" : preview,
-                Content = htmlContent,
-                Date = dateCreated,
-                Views = views,
-                Reactions = reactions,
-                Forwards = forwards,
-                IsNoContent = isNoContent
-            });
-        }
-
-        var sortedPosts = posts
-            .Where(p => !config.StaticSite.SkipEmptyContentPosts || !p.IsNoContent)
-            .OrderByDescending(p => p.Date)
-            .Take(config.StaticSite.MaxPostsInIndex)
-            .ToList();
-
-        // Re-render each post (creates new ones and updates metadata on existing ones)
-        var postsOutDir = Path.Combine(siteDir, "posts");
-        Directory.CreateDirectory(postsOutDir);
-        int newPostCount = 0, updatedPostCount = 0;
-
-        foreach (var post in sortedPosts)
-        {
-            var postPath = Path.Combine(postsOutDir, $"{post.Filename}.html");
-            bool isNew = !File.Exists(postPath);
-            var postHtml = InlineCss(siteGenerator.RenderPostPage(config.StaticSite, post), cssContent);
-            await WriteUtf8FileAsync(postPath, postHtml);
-            if (isNew) newPostCount++; else updatedPostCount++;
-        }
-
-        // Regenerate index and sitemap
-        var indexHtml = InlineCss(siteGenerator.RenderIndexPage(config.StaticSite, sortedPosts, DateTime.Now), cssContent);
-        await WriteUtf8FileAsync(Path.Combine(siteDir, "index.html"), indexHtml);
-
-        var aboutTemplatePath = Path.Combine(templatesPath, "about.html");
-        if (File.Exists(aboutTemplatePath))
-        {
-            var aboutHtml = InlineCss(siteGenerator.RenderTemplate("about.html", new Dictionary<string, string>
-            {
-                ["pageTitle"]   = $"درباره {config.StaticSite.SiteTitle}",
-                ["siteTitle"]   = config.StaticSite.SiteTitle,
-                ["subtitle"]    = config.StaticSite.Subtitle,
-                ["headerIcon"]  = config.StaticSite.HeaderIcon,
-                ["description"] = config.StaticSite.Description,
-                ["faviconPath"] = "favicon.svg",
-                ["canonicalUrl"] = string.IsNullOrWhiteSpace(config.StaticSite.SiteBaseUrl)
-                    ? string.Empty
-                    : $"{config.StaticSite.SiteBaseUrl.Trim().TrimEnd('/')}/about.html",
-                ["canonicalTag"] = string.IsNullOrWhiteSpace(config.StaticSite.SiteBaseUrl)
-                    ? string.Empty
-                    : $"<link rel=\"canonical\" href=\"{config.StaticSite.SiteBaseUrl.Trim().TrimEnd('/')}/about.html\">",
-                ["socialMetaTags"] = siteGenerator.BuildSocialMetaTags(
-                    config.StaticSite,
-                    BuildAboutPageTitle(config.StaticSite),
-                    config.StaticSite.Description,
-                    string.IsNullOrWhiteSpace(config.StaticSite.SiteBaseUrl)
-                        ? string.Empty
-                        : $"{config.StaticSite.SiteBaseUrl.Trim().TrimEnd('/')}/about.html"),
-                ["jsonSiteTitle"] = JsonSerializer.Serialize(config.StaticSite.SiteTitle),
-                ["jsonSubtitle"] = JsonSerializer.Serialize(config.StaticSite.Subtitle),
-                ["jsonDescription"] = JsonSerializer.Serialize(config.StaticSite.Description),
-                ["jsonCanonicalUrl"] = JsonSerializer.Serialize(
-                    string.IsNullOrWhiteSpace(config.StaticSite.SiteBaseUrl)
-                        ? string.Empty
-                        : $"{config.StaticSite.SiteBaseUrl.Trim().TrimEnd('/')}/about.html"),
-            }), cssContent);
-            await File.WriteAllTextAsync(Path.Combine(siteDir, "about.html"), aboutHtml);
-        }
-
-        if (!string.IsNullOrWhiteSpace(config.StaticSite.SiteBaseUrl))
-        {
-            var sitemapXml = siteGenerator.GenerateSitemap(
-                config.StaticSite,
-                sortedPosts,
-                config.StaticSite.SiteBaseUrl,
-                File.Exists(aboutTemplatePath));
-            await File.WriteAllTextAsync(Path.Combine(siteDir, "sitemap.xml"), sitemapXml);
-
-            var robotsTxt = siteGenerator.GenerateRobotsTxt(config.StaticSite.SiteBaseUrl);
-            await File.WriteAllTextAsync(Path.Combine(siteDir, "robots.txt"), robotsTxt);
-        }
-        else
-        {
-            WriteLine("⚠️  StaticSite:SiteBaseUrl is not configured; canonical tags, sitemap.xml, and robots.txt will be skipped.");
-        }
-
-        // Update assets/style.css as well
-        if (File.Exists(assetsSource))
-            File.Copy(assetsSource, Path.Combine(siteDir, "assets", "style.css"), overwrite: true);
-        if (File.Exists(faviconSource))
-            File.Copy(faviconSource, Path.Combine(siteDir, "favicon.svg"), overwrite: true);
-        if (File.Exists(socialPreviewSource))
-            File.Copy(socialPreviewSource, Path.Combine(siteDir, "social-preview.png"), overwrite: true);
-
-        WriteLine("✅ Site updated successfully!");
-        WriteLine($"   📂 Site folder: {siteDir}");
-        if (exportUpdateSummary is { Status: "Completed" })
-        {
-            WriteLine($"   📡 Export sync: {exportUpdateSummary.NewPostsCount} new, {exportUpdateSummary.RefreshedPostsCount} refreshed");
-        }
-        WriteLine($"   🆕 New posts added: {newPostCount}");
-        WriteLine($"   🔄 Posts refreshed (metadata updated): {updatedPostCount}");
-        if (newMediaCount > 0)
-            WriteLine($"   🖼️  New media files synced: {newMediaCount}");
-        WriteLine($"   📋 Total posts in site: {sortedPosts.Count}");
-
-        if (config.StaticSite.OpenBrowserAfterGeneration)
-        {
-            var indexUrl = Path.GetFullPath(Path.Combine(siteDir, "index.html"));
-            try
-            {
-                Process.Start(new ProcessStartInfo
-                {
-                    FileName = indexUrl,
-                    UseShellExecute = true
-                });
-            }
-            catch (Exception ex)
-            {
-                WriteLine($"ℹ️ Could not open browser: {ex.Message}");
-            }
-        }
-    }
-
-    static (int views, int reactions, int forwards) ExtractMetadata(string content)
-    {
-        int views = 0, reactions = 0, forwards = 0;
-
-        var lines = content.Split('\n');
-        foreach (var line in lines)
-        {
-            if (line.StartsWith("**Views:**"))
-                int.TryParse(line.Replace("**Views:**", "").Trim(), out views);
-            else if (line.StartsWith("**Reactions:**"))
-                int.TryParse(line.Replace("**Reactions:**", "").Trim(), out reactions);
-            else if (line.StartsWith("**Forwards:**"))
-                int.TryParse(line.Replace("**Forwards:**", "").Trim(), out forwards);
-        }
-
-        return (views, reactions, forwards);
-    }
-
-    static string? ExtractTitle(string content)
-    {
-        var lines = content.Split('\n');
-
-        foreach (var line in lines)
-        {
-            var trimmedLine = line.Trim();
-
-            if (IsMetadataLine(trimmedLine) ||
-                trimmedLine.StartsWith("![") ||
-                trimmedLine.Equals("[No content]", StringComparison.OrdinalIgnoreCase) ||
-                trimmedLine.Equals("This article was shared as a preview without extracted body text.", StringComparison.OrdinalIgnoreCase) ||
-                string.IsNullOrWhiteSpace(trimmedLine))
-            {
-                continue;
-            }
-
-            return StripMarkdownFormatting(StripHeadingMarkers(trimmedLine));
-        }
-
-        return null;
-    }
-
-    static bool IsPostMetadataLine(string trimmedLine)
-    {
-        return trimmedLine.StartsWith("**Created:**") ||
-               trimmedLine.StartsWith("**Edited:**") ||
-               trimmedLine.StartsWith("**Post Type:**") ||
-               trimmedLine.StartsWith("**Views:**") ||
-               trimmedLine.StartsWith("**Reactions:**") ||
-               trimmedLine.StartsWith("**Forwards:**") ||
-               trimmedLine.StartsWith("**LLM Processed:**") ||
-               trimmedLine.StartsWith("**Tags:**");
-    }
-
-    static bool IsNoContentPost(string content)
-    {
-        if (string.IsNullOrWhiteSpace(content))
-            return true;
-
-        var normalized = content.Replace("\r\n", "\n");
-        if (normalized.Contains("[No content]", StringComparison.OrdinalIgnoreCase))
-            return true;
-
-        if (normalized.Contains("**Post Type:** Article", StringComparison.OrdinalIgnoreCase) ||
-            normalized.Contains("**Source:**", StringComparison.OrdinalIgnoreCase))
+        var templatesPath = ResolveTemplatesPath(config.StaticSite.TemplateName);
+        if (templatesPath == null)
         {
             return false;
         }
 
-        return false;
+        WriteLine($"📂 Updating site: {siteDir}");
+        await SyncExportsBeforeUpdateAsync(config);
+
+        return await BuildSiteAsync(config, templatesPath, siteDir, isUpdate: true);
     }
 
-    static bool IsArticleAttributionLine(string trimmedLine)
+    static async Task SyncExportsBeforeUpdateAsync(TelegramConfig config)
     {
-        return trimmedLine.StartsWith("**Author:**") ||
-               trimmedLine.StartsWith("**Source:**");
-    }
+        using var telegramService = TelegramServiceFactory.CreateService(config);
 
-    static bool IsMetadataLine(string trimmedLine)
-    {
-        return IsPostMetadataLine(trimmedLine) || IsArticleAttributionLine(trimmedLine);
-    }
-
-    static string StripHeadingMarkers(string text)
-    {
-        return Regex.Replace(text, @"^#{1,6}\s+", string.Empty);
-    }
-
-    static string InlineCss(string html, string cssContent)
-    {
-        if (string.IsNullOrEmpty(cssContent)) return html;
-        return Regex.Replace(
-            html,
-            @"<link\s+rel=['""]stylesheet['""]\s+href=['""][./]*assets/style\.css['""]\s*/?>",
-            $"<style>{cssContent}</style>",
-            RegexOptions.IgnoreCase);
-    }
-
-    static string StripMarkdownFormatting(string text)
-    {
-        if (string.IsNullOrEmpty(text))
-            return text;
-
-        text = Regex.Replace(text, @"\[([^\]]+)\]\([^\)]+\)", "$1");
-        text = Regex.Replace(text, @"\*\*(.*?)\*\*", "$1");
-        text = Regex.Replace(text, @"\*(.*?)\*", "$1");
-        text = Regex.Replace(text, "`([^`]+)`", "$1");
-        
-        return text;
-    }
-
-    static string ExtractPreview(string content, int maxLength = 130)
-    {
-        var lines = content.Split('\n');
-        var contentBuilder = new StringBuilder();
-        bool skippedTitle = false;
-
-        foreach (var line in lines)
+        var lastExportSummary = await telegramService.GetLastExportSummaryAsync();
+        if (lastExportSummary?.Posts.Any() != true)
         {
-            var trimmedLine = line.Trim();
+            return;
+        }
 
-            if (IsMetadataLine(trimmedLine) ||
-                trimmedLine.StartsWith("![") ||
-                trimmedLine.Equals("[No content]", StringComparison.OrdinalIgnoreCase) ||
-                trimmedLine.Equals("This article was shared as a preview without extracted body text.", StringComparison.OrdinalIgnoreCase) ||
-                string.IsNullOrWhiteSpace(trimmedLine))
+        var lastPostDate = lastExportSummary.Posts.Max(p => p.CreatedAt);
+        WriteLine($"📡 Syncing exports from Telegram before rebuilding site (last export: {lastPostDate:yyyy-MM-dd HH:mm:ss} UTC)...");
+
+        if (!await telegramService.AuthenticateAsync())
+        {
+            WriteLine("⚠️  Telegram authentication failed. Continuing with existing exported markdown files.");
+            return;
+        }
+
+        var summary = await telegramService.UpdateExistingExportsAsync(lastPostDate);
+        if (summary.Status != "Completed")
+        {
+            WriteLine($"⚠️  Export sync failed: {summary.ErrorMessage}");
+            WriteLine("   Continuing with local exported markdown files.");
+            return;
+        }
+
+        WriteLine($"   📡 Export sync: {summary.NewPostsCount} new, {summary.RefreshedPostsCount} refreshed");
+    }
+
+    static async Task<bool> BuildSiteAsync(TelegramConfig config, string templatesPath, string siteDir, bool isUpdate)
+    {
+        try
+        {
+            var result = await new SiteBuilder(config.StaticSite, templatesPath).BuildAsync(ExportDirectory, siteDir);
+
+            foreach (var warning in result.Warnings)
             {
-                continue;
+                WriteLine($"⚠️  {warning}");
             }
 
-            if (!skippedTitle)
+            WriteLine(isUpdate ? "✅ Site updated successfully!" : "✅ Static website generated successfully!");
+            WriteLine($"   🌐 Site folder: {result.SiteDirectory}");
+            WriteLine($"   📌 {result.PostPages} post pages ({result.NewPostPages} new, {result.UpdatedPostPages} refreshed, {result.RemovedPostPages} removed); {result.IndexedPosts} listed on the index");
+            if (result.MediaFilesCopied > 0)
+                WriteLine($"   🖼️  Media files copied: {result.MediaFilesCopied}");
+            if (result.SitemapPath is not null)
+                WriteLine($"   🗺️  Sitemap: {result.SitemapPath}");
+            WriteLine($"   📌 Template: {config.StaticSite.TemplateName}");
+
+            if (config.StaticSite.OpenBrowserAfterGeneration)
             {
-                skippedTitle = true;
-                continue;
+                OpenInBrowser(result.IndexPath);
             }
 
-            if (!trimmedLine.StartsWith("#"))
+            return true;
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or IOException or FileNotFoundException)
+        {
+            WriteLine($"❌ {ex.Message}");
+            return false;
+        }
+    }
+
+    static void OpenInBrowser(string indexPath)
+    {
+        var indexUrl = Path.GetFullPath(indexPath);
+        WriteLine($"   🚀 Opening browser: {indexUrl}");
+        try
+        {
+            Process.Start(new ProcessStartInfo { FileName = indexUrl, UseShellExecute = true });
+        }
+        catch (Exception ex)
+        {
+            WriteLine($"ℹ️ Could not open browser: {ex.Message}");
+            WriteLine($"   Please open manually: {indexUrl}");
+        }
+    }
+
+    /// <summary>Finds <c>templates/{name}</c> next to the executable, then in the working directory.</summary>
+    static string? ResolveTemplatesPath(string name)
+    {
+        var baseDirectory = AppContext.BaseDirectory;
+        var candidates = new[]
+        {
+            Path.Combine(baseDirectory, "templates", name),
+            Path.Combine("templates", name)
+        };
+
+        var found = candidates.FirstOrDefault(Directory.Exists);
+        if (found != null)
+        {
+            return found;
+        }
+
+        WriteLine($"❌ Template directory not found: {candidates[0]}");
+        var templatesRoot = new[] { Path.Combine(baseDirectory, "templates"), "templates" }.FirstOrDefault(Directory.Exists);
+        if (templatesRoot != null)
+        {
+            WriteLine("Available templates:");
+            foreach (var dir in Directory.GetDirectories(templatesRoot))
             {
-                contentBuilder.AppendLine(trimmedLine);
-                if (contentBuilder.Length > maxLength)
-                    break;
+                WriteLine($"   - {Path.GetFileName(dir)}");
             }
         }
 
-        var preview = contentBuilder.ToString().Trim();
-        preview = StripMarkdownFormatting(preview);
-        
-        if (preview.Length > maxLength)
-        {
-            preview = preview.Substring(0, maxLength) + "...";
-        }
-
-        return string.IsNullOrEmpty(preview) ? "No preview available" : preview;
+        return null;
     }
-
-    static string ConvertMarkdownToHtml(string markdown, string? postTitle = null)
-    {
-        var lines = markdown.Split('\n');
-        var htmlBuilder = new StringBuilder();
-        bool skippedMetadata = false;
-        bool inCodeBlock = false;
-
-        foreach (var line in lines)
-        {
-            var trimmedLine = line.Trim();
-
-            // Post metadata is never part of the rendered content.
-            if (IsPostMetadataLine(trimmedLine))
-            {
-                continue;
-            }
-
-            if (trimmedLine.Equals("This article was shared as a preview without extracted body text.", StringComparison.OrdinalIgnoreCase))
-            {
-                continue;
-            }
-
-            if (!skippedMetadata && trimmedLine.StartsWith("!["))
-            {
-                continue;
-            }
-
-            if (!skippedMetadata && !string.IsNullOrWhiteSpace(trimmedLine))
-            {
-                skippedMetadata = true;
-            }
-
-            if (!skippedMetadata)
-                continue;
-
-            // Skip heading lines that just repeat the post title (the template
-            // already renders the title in the page header).
-            if (postTitle != null &&
-                (trimmedLine.StartsWith("# ") || trimmedLine.StartsWith("## ")))
-            {
-                var headingText = StripHeadingMarkers(trimmedLine);
-                if (string.Equals(StripMarkdownFormatting(headingText), StripMarkdownFormatting(postTitle), StringComparison.OrdinalIgnoreCase))
-                {
-                    continue;
-                }
-            }
-
-            // Fenced code block delimiter
-            if (trimmedLine.StartsWith("```"))
-            {
-                if (!inCodeBlock)
-                {
-                    var lang = trimmedLine.Substring(3).Trim();
-                    var classAttr = lang.Length > 0
-                        ? $" class=\"language-{WebUtility.HtmlEncode(lang)}\""
-                        : "";
-                    htmlBuilder.AppendLine($"<pre><code{classAttr}>");
-                    inCodeBlock = true;
-                }
-                else
-                {
-                    htmlBuilder.AppendLine("</code></pre>");
-                    inCodeBlock = false;
-                }
-                continue;
-            }
-
-            // Inside a code block: preserve indentation and escape HTML entities
-            if (inCodeBlock)
-            {
-                htmlBuilder.AppendLine(WebUtility.HtmlEncode(line));
-                continue;
-            }
-
-            if (trimmedLine.Equals("[No content]", StringComparison.OrdinalIgnoreCase))
-            {
-                htmlBuilder.AppendLine("<p class='no-content-notice'>⚠️ This post had no text content (e.g. a poll or media-only post).</p>");
-                continue;
-            }
-
-            if (trimmedLine.StartsWith("!["))
-            {
-                var match = Regex.Match(trimmedLine, @"!\[.*?\]\((.*?)\)");
-                if (match.Success)
-                {
-                    var imagePath = match.Groups[1].Value;
-                    htmlBuilder.AppendLine($"<img src='../{imagePath}' alt='Post Image' loading='lazy' decoding='async' style='max-width: 100%; height: auto; border-radius: 8px; margin: 15px 0;'>");
-                }
-                continue;
-            }
-
-            // Telegram/LLM content occasionally contains [[label]](url). Normalize it
-            // before parsing so it becomes a real link instead of visible Markdown.
-            var normalizedLine = Regex.Replace(trimmedLine, @"\[\[([^\]]+)\]\]\(([^)]+)\)", "[$1]($2)");
-            var htmlLine = WebUtility.HtmlEncode(normalizedLine);
-
-            // Inline code must be extracted before bold/italic to avoid processing its content
-            htmlLine = Regex.Replace(htmlLine, "`([^`]+)`", "<code>$1</code>");
-
-            htmlLine = Regex.Replace(htmlLine, @"\[([^\]]+)\]\(([^\)]+)\)", RenderSafeMarkdownLink);
-
-            htmlLine = Regex.Replace(htmlLine, @"\*\*(.*?)\*\*", "<strong>$1</strong>");
-            htmlLine = Regex.Replace(htmlLine, @"\*(.*?)\*", "<em>$1</em>");
-            htmlLine = Regex.Replace(htmlLine, @"_(.*?)_", "<em>$1</em>");
-
-            if (htmlLine.StartsWith("### "))
-                htmlLine = $"<h3>{htmlLine.Substring(4)}</h3>";
-            else if (htmlLine.StartsWith("## "))
-                htmlLine = $"<h2>{htmlLine.Substring(3)}</h2>";
-            else if (htmlLine.StartsWith("# "))
-                htmlLine = $"<h1>{htmlLine.Substring(2)}</h1>";
-
-            if (string.IsNullOrWhiteSpace(htmlLine))
-                htmlBuilder.AppendLine("<br>");
-            else if (!htmlLine.StartsWith("<h") && !htmlLine.StartsWith("<img"))
-                htmlBuilder.AppendLine($"<p>{htmlLine}</p>");
-            else
-                htmlBuilder.AppendLine(htmlLine);
-        }
-
-        // Close an unclosed code block gracefully
-        if (inCodeBlock)
-            htmlBuilder.AppendLine("</code></pre>");
-
-        return htmlBuilder.ToString();
-    }
-
-    static string RenderSafeMarkdownLink(Match match)
-    {
-        var label = match.Groups[1].Value;
-        var decodedUrl = WebUtility.HtmlDecode(match.Groups[2].Value).Trim();
-
-        if (!Uri.TryCreate(decodedUrl, UriKind.Absolute, out var uri) ||
-            (uri.Scheme != Uri.UriSchemeHttp && uri.Scheme != Uri.UriSchemeHttps && uri.Scheme != Uri.UriSchemeMailto))
-        {
-            return label;
-        }
-
-        return $"<a href='{WebUtility.HtmlEncode(uri.ToString())}' target='_blank' rel='noopener noreferrer'>{label}</a>";
-    }
-
-    static string BuildAboutPageTitle(StaticSiteConfig config)
-    {
-        return config.TemplateName.StartsWith("fa", StringComparison.OrdinalIgnoreCase) ||
-               config.TemplateName.Equals("techafternoon", StringComparison.OrdinalIgnoreCase)
-            ? $"درباره {config.SiteTitle}"
-            : $"About {config.SiteTitle}";
-    }
-
-    static DateTime ExtractCreationDate(string content)
-    {
-        var lines = content.Split('\n');
-        foreach (var line in lines)
-        {
-            if (line.StartsWith("**Created:**"))
-            {
-                var dateText = line.Replace("**Created:**", "").Trim();
-                dateText = dateText.EndsWith(" UTC") ? dateText[..^4].Trim() : dateText;
-
-                if (DateTime.TryParseExact(dateText, "yyyy-MM-dd HH:mm:ss", null, DateTimeStyles.None, out var date))
-                {
-                    return date;
-                }
-
-                if (DateTime.TryParse(dateText, out var date2))
-                {
-                    return date2;
-                }
-            }
-        }
-        return DateTime.MinValue;
-    }
-
-    static Task WriteUtf8FileAsync(string path, string content)
-    {
-        return File.WriteAllTextAsync(path, SanitizeUnicode(content), new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
-    }
-
-    static string SanitizeUnicode(string content)
-    {
-        if (string.IsNullOrEmpty(content))
-            return content;
-
-        var builder = new StringBuilder(content.Length);
-
-        for (var index = 0; index < content.Length; index++)
-        {
-            var current = content[index];
-
-            if (char.IsHighSurrogate(current))
-            {
-                if (index + 1 < content.Length && char.IsLowSurrogate(content[index + 1]))
-                {
-                    builder.Append(current);
-                    builder.Append(content[index + 1]);
-                    index++;
-                    continue;
-                }
-
-                builder.Append('\uFFFD');
-                continue;
-            }
-
-            if (char.IsLowSurrogate(current))
-            {
-                builder.Append('\uFFFD');
-                continue;
-            }
-
-            builder.Append(current);
-        }
-
-        return builder.ToString();
-    }
-
 }

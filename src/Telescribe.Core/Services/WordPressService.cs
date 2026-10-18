@@ -17,7 +17,9 @@ public class WordPressService : IWordPressService
     {
         _config = config;
         _client = new WordPressClient(_config.SiteUrl);
-        _mappingFilePath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "wordpress_mappings.json");
+        // Kept with the exports (not next to the executable) so a rebuild or clean cannot lose the Telegram-to-WordPress mapping and cause duplicate posts.
+        _mappingFilePath = Path.Combine("exports", "wordpress_mappings.json");
+        MigrateLegacyMappingFile();
         _postMappings = LoadPostMappings();
     }
 
@@ -389,6 +391,16 @@ public class WordPressService : IWordPressService
         html = html.Replace("\n", "<br>\n");
 
         return html;
+    }
+
+    private void MigrateLegacyMappingFile()
+    {
+        var legacyPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "wordpress_mappings.json");
+        if (File.Exists(legacyPath) && !File.Exists(_mappingFilePath))
+        {
+            Directory.CreateDirectory(Path.GetDirectoryName(_mappingFilePath)!);
+            File.Copy(legacyPath, _mappingFilePath);
+        }
     }
 
     private Dictionary<long, WordPressPostMapping> LoadPostMappings()

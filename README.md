@@ -14,12 +14,13 @@ Telescribe turns your Telegram channel into a content hub. It exports posts with
 ## Features
 
 ### 📥 **Telegram Export**
-- Export all posts from any Telegram channel you have access to
-- Download media files (images, videos, documents, audio)
+- Export the **full history** of any Telegram channel you can access (public channels by `@username`, `t.me/` link or numeric id; no cap on post count)
+- Download media files (images, videos, documents, audio); files already on disk are never re-downloaded, an optional `MaxMediaSizeMB` skips huge documents, and downloads are written atomically
+- Albums (several photos/videos posted together) are merged into a single post
 - Exports polls with vote counts and visual bars
 - Rich text formatting: bold, italic, underline, strikethrough, spoiler, code blocks, links, blockquotes
 - Article posts partially supported (Instant View content extracted, but native Telegram article format may fail)
-- Incremental updates: sync only new posts since the last export
+- Incremental updates: fetch new posts and refresh statistics for recent ones (`RefreshWindowDays`, default 30)
 - Captures views, reactions, and forward counts per post
 - Exports to Markdown files for easy processing
 
@@ -34,8 +35,10 @@ Telescribe turns your Telegram channel into a content hub. It exports posts with
 - Generate a responsive static website from your exported posts
 - **Multi-Language Templates**: English (`en`) and Persian/Farsi (`fa`) built in, plus custom templates
 - **Search, Sort, and Pagination**: All client-side with no external dependencies
+- **Safe by default**: post text is rendered with a real Markdown parser (Markdig); raw HTML is escaped, only `http`, `https`, `mailto` and `tel` links are kept, and template values are HTML-escaped
+- **Every post gets a page**: `MaxPostsInIndex` only limits how many posts the index page lists (use `0` for all)
 - **Browser History Support**: Back and forward navigation works naturally
-- **SEO Ready**: Sitemap.xml, meta tags, and clean structure
+- **SEO Ready**: Sitemap.xml, robots.txt, canonical URLs, Open Graph/Twitter tags and schema.org JSON-LD (set `AuthorName`, `PublisherName`, `SameAs`)
 - **About Page**: Rendered from template if your template includes one
 
 ### 📊 **Analytics and Reporting**
@@ -58,7 +61,7 @@ Telescribe turns your Telegram channel into a content hub. It exports posts with
 ## Requirements
 
 ### System Requirements
-- **.NET 10.0** runtime or higher
+- **.NET 11 SDK** (the repository pins a release candidate in [global.json](global.json); newer .NET 11 builds are accepted)
 
 ### Telegram API Setup
 - **Telegram API credentials** from [https://my.telegram.org/](https://my.telegram.org/)
@@ -94,15 +97,17 @@ Telescribe turns your Telegram channel into a content hub. It exports posts with
 
 ### 🔨 Coming soon: Available as a .NET tool!
 
-### 1. Clone and Build
+### 1. Clone, Build and Test
 ```bash
 git clone https://github.com/aminmesbahi/telescribe.git
 cd telescribe/src
 dotnet build
+dotnet test --solution Telescribe.slnx
 ```
+The test runner is [Microsoft.Testing.Platform](https://learn.microsoft.com/dotnet/core/testing/microsoft-testing-platform-intro) (opted in via `global.json`).
 
 ### 2. Configuration Setup
-Copy `appsettings.example.json` to `appsettings.json` in `Telescribe.Console` and fill in your values:
+Copy `appsettings.example.json` to `appsettings.json` in `Telescribe.Console` and fill in your values (see the example file for every option, including `MaxMediaSizeMB`, `RefreshWindowDays` and the structured-data fields under `StaticSite`).
 
 ```json
 {
@@ -111,24 +116,6 @@ Copy `appsettings.example.json` to `appsettings.json` in `Telescribe.Console` an
     "ChannelId": "@yourchannel",
     "ApiId": 12345678,
     "ApiHash": "your-api-hash",
-    "SummaryCharacterCount": 200,
-    "LLM": {
-      "EnableProcessing": true,
-      "Provider": "OpenAI",
-      "ApiKey": "your-api-key",
-      "ModelName": "gpt-4",
-      "GenerateTitle": true,
-      "ExtractHashtags": true,
-      "MaxHashtags": 5,
-      "Language": "English"
-    },
-    "WordPress": {
-      "BaseUrl": "https://yoursite.com",
-      "Username": "your-username",
-      "Password": "your-app-password",
-      "EnableUploads": true,
-      "DefaultCategoryId": "Telegram Posts"
-    },
     "StaticSite": {
       "SiteTitle": "My Telegram Archive",
       "Subtitle": "Content from my Telegram channel",
@@ -136,11 +123,24 @@ Copy `appsettings.example.json` to `appsettings.json` in `Telescribe.Console` an
       "MaxPostsInIndex": 50,
       "OpenBrowserAfterGeneration": true,
       "SkipEmptyContentPosts": false,
-      "SiteBaseUrl": "https://yoursite.com"
+      "SiteBaseUrl": "https://yoursite.com",
+      "AuthorName": "Your Name"
     }
   }
 }
 ```
+
+`ChannelId` can be `@name`, `name`, a `t.me/name` link, a numeric id (a Bot-API style `-100…` id is fine), or the channel title.
+
+**Keep secrets out of the file.** Values can also come from [user secrets](https://learn.microsoft.com/aspnet/core/security/app-secrets) or environment variables, which override `appsettings.json`:
+
+```bash
+dotnet user-secrets set "TelegramConfig:ApiHash" "your-api-hash" --project Telescribe.Console
+# or
+export TelegramConfig__ApiHash=your-api-hash
+```
+
+The AI (`Llm`) and WordPress options are bound the same way. Their keys are `Llm:*` and `WordPress:SiteUrl`, `Username`, `ApplicationPassword`, `CategoryName`, `EnableUpload`.
 
 ### 3. Run the Application
 
@@ -150,14 +150,19 @@ cd Telescribe.Console
 dotnet run
 ```
 
-Command line shortcuts:
+Command line shortcuts (exit code is non-zero on failure):
 ```bash
 # Generate static website directly
 dotnet run --project Telescribe.Console static
 
+# Refresh the most recent generated site (syncs Telegram first)
+dotnet run --project Telescribe.Console update-site
+
 # Generate analytics reports directly
 dotnet run --project Telescribe.Console reports
 ```
+
+The first login asks for the verification code Telegram sends you (and your 2FA password, typed without echo if you use one). The session is then stored in `WTelegram.session`, which is git-ignored; keep it private.
 
 ### 4. Menu Options
 1. **Export Channel Posts** - Download all posts from Telegram
@@ -167,10 +172,14 @@ dotnet run --project Telescribe.Console reports
 5. **Analytics Reports** - Generate engagement insights
 6. **Static Website Builder** - Create a browsable static website
 7. **Exit Application**
+8. **Update Static Website** - Sync Telegram, then refresh the latest generated site
 
 ## Templates
 
 Templates live in `src/Telescribe.Console/templates/{name}/` and consist of plain HTML files with `{{placeholder}}` variables. The built-in templates are `en` (English) and `fa` (Persian/RTL). To create a custom template, copy an existing folder and adjust the HTML and CSS files.
+
+- Placeholders are replaced in a single pass, and plain values are **HTML-escaped**. Only values the generator marks as trusted markup (the post body, meta tags, structured data) are inserted as-is.
+- An optional `template.json` describes the template (`language`, `direction`, `openGraphLocale`, `aboutTitleFormat`). Without one, names starting with `fa` are treated as Persian and everything else as English.
 
 ## Roadmap
 
@@ -196,7 +205,8 @@ Templates live in `src/Telescribe.Console/templates/{name}/` and consist of plai
 - **LLM Processing**: Partially implemented, still in development
 - **WordPress Upload**: Menu option visible but full integration is in progress
 - **Article Posts**: Native Telegram article format is not fully supported. Some articles may export as empty or only show metadata. The Instant View page parser works for many cases but not all.
-- **API Rate Limits**: Telegram API has built-in rate limiting; large channels may take a while
+- **API Rate Limits**: Telegram API has built-in rate limiting; large channels may take a while (the full history is now fetched, not just the latest 1,000 messages)
+- **Existing exports**: albums that an older version exported as separate posts are merged the next time you run an update that covers them; run a full export to rebuild everything
 
 ## License
 

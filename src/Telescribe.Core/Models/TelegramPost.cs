@@ -15,6 +15,12 @@ public class TelegramPost
     public string Channel { get; set; } = string.Empty;
     public List<string> MediaFiles { get; set; } = [];
 
+    /// <summary>
+    /// Ids of every Telegram message folded into this post. More than one entry means the post is an album
+    /// (several media messages sharing a grouped id); <see cref="Id"/> is the oldest of them.
+    /// </summary>
+    public List<long> MergedMessageIds { get; set; } = [];
+
     // Post type: "text", "photo", "document", "article", ...
     public string PostType { get; set; } = "text";
 

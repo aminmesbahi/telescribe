@@ -1,4 +1,5 @@
 <Solution>
   <Project Path="Telescribe.Console/Telescribe.Console.csproj" />
   <Project Path="Telescribe.Core/Telescribe.Core.csproj" />
+  <Project Path="Telescribe.Tests/Telescribe.Tests.csproj" />
 </Solution>
