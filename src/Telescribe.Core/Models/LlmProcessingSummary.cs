@@ -7,6 +7,8 @@ public class LlmProcessingSummary
     public int TitlesGenerated { get; set; }
     public int HashtagsExtracted { get; set; }
     public int FailedPosts { get; set; }
+    /// <summary>Posts left alone: already enriched, or without any text to analyse.</summary>
+    public int SkippedPosts { get; set; }
     public string Provider { get; set; } = string.Empty;
     public List<string> Errors { get; set; } = [];
     public DateTime ProcessingStarted { get; set; }

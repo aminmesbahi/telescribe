@@ -27,11 +27,19 @@ public class SiteGeneratorService
         return _engine.Render(templateName, variables);
     }
 
-    public string RenderIndexPage(StaticSiteConfig config, IReadOnlyList<PostData> listedPosts, DateTime generatedDate, int totalPosts)
+    public string RenderIndexPage(
+        StaticSiteConfig config,
+        IReadOnlyList<PostData> listedPosts,
+        DateTime generatedDate,
+        int totalPosts,
+        ListingPage? listing = null)
     {
         var postsContent = new StringBuilder();
-        var canonicalUrl = BuildCanonicalUrl(NormalizeBaseUrl(config.SiteBaseUrl), string.Empty);
-        var pageTitle = BuildPageTitle(config.SiteTitle, config.Subtitle);
+        var listingPath = listing is null ? string.Empty : EscapePath(listing.RelativePath);
+        var canonicalUrl = BuildCanonicalUrl(NormalizeBaseUrl(config.SiteBaseUrl), listingPath);
+        var pageTitle = listing is null
+            ? BuildPageTitle(config.SiteTitle, config.Subtitle)
+            : BuildPageTitle(listing.Heading, config.SiteTitle);
         var description = NormalizeWhitespace(config.Description);
 
         foreach (var post in listedPosts)
@@ -52,11 +60,11 @@ public class SiteGeneratorService
         {
             ["pageTitle"] = pageTitle,
             ["siteTitle"] = config.SiteTitle,
-            ["subtitle"] = config.Subtitle,
+            ["subtitle"] = listing?.Heading ?? config.Subtitle,
             ["headerIcon"] = config.HeaderIcon,
             ["description"] = description,
             ["canonicalUrl"] = canonicalUrl,
-            ["canonicalTag"] = TemplateValue.Raw(BuildCanonicalTag(config.SiteBaseUrl, string.Empty)),
+            ["canonicalTag"] = TemplateValue.Raw(BuildCanonicalTag(config, listingPath)),
             ["socialMetaTags"] = TemplateValue.Raw(BuildSocialMetaTags(config, pageTitle, description, canonicalUrl, "website")),
             ["faviconPath"] = "favicon.svg",
             ["jsonLdScript"] = TemplateValue.Raw(JsonLd.IndexScript(config, Template, canonicalUrl)),
@@ -85,7 +93,7 @@ public class SiteGeneratorService
             ["date"] = post.Date.ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture),
             ["preview"] = description,
             ["canonicalUrl"] = canonicalUrl,
-            ["canonicalTag"] = TemplateValue.Raw(BuildCanonicalTag(config.SiteBaseUrl, relativePath)),
+            ["canonicalTag"] = TemplateValue.Raw(BuildCanonicalTag(config, relativePath)),
             ["socialMetaTags"] = TemplateValue.Raw(BuildSocialMetaTags(config, pageTitle, description, canonicalUrl, "article", post.Date)),
             ["faviconPath"] = "../favicon.svg",
             ["jsonLdScript"] = TemplateValue.Raw(JsonLd.PostScript(config, Template, post, canonicalUrl)),
@@ -116,7 +124,7 @@ public class SiteGeneratorService
             ["description"] = config.Description,
             ["faviconPath"] = "favicon.svg",
             ["canonicalUrl"] = canonicalUrl,
-            ["canonicalTag"] = TemplateValue.Raw(BuildCanonicalTag(config.SiteBaseUrl, "about.html")),
+            ["canonicalTag"] = TemplateValue.Raw(BuildCanonicalTag(config, "about.html")),
             ["socialMetaTags"] = TemplateValue.Raw(BuildSocialMetaTags(config, pageTitle, config.Description, canonicalUrl)),
             ["jsonSiteTitle"] = TemplateValue.Raw(JsonLd.String(config.SiteTitle)),
             ["jsonSubtitle"] = TemplateValue.Raw(JsonLd.String(config.Subtitle)),
@@ -126,7 +134,7 @@ public class SiteGeneratorService
     }
 
     /// <summary>Generates a standard XML sitemap for the static site.</summary>
-    public string GenerateSitemap(IReadOnlyList<PostData> posts, string baseUrl, bool includeAboutPage = false)
+    public string GenerateSitemap(IReadOnlyList<PostData> posts, string baseUrl, bool includeAboutPage = false, IEnumerable<string>? extraPaths = null)
     {
         var normalizedBaseUrl = NormalizeBaseUrl(baseUrl);
         var today = DateTime.UtcNow.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
@@ -145,6 +153,11 @@ public class SiteGeneratorService
         {
             var lastMod = post.Date == DateTime.MinValue ? today : FormatDate(post.Date);
             AppendUrl(sb, BuildCanonicalUrl(normalizedBaseUrl, $"posts/{post.Filename}.html"), lastMod, "monthly", "0.8");
+        }
+
+        foreach (var path in extraPaths ?? [])
+        {
+            AppendUrl(sb, BuildCanonicalUrl(normalizedBaseUrl, EscapePath(path)), today, "weekly", "0.4");
         }
 
         sb.AppendLine("</urlset>");
@@ -268,16 +281,29 @@ public class SiteGeneratorService
             .Replace("'", "&apos;");
     }
 
-    private static string BuildCanonicalTag(string? baseUrl, string relativePath)
+    /// <summary>Canonical link plus (when a feed exists) the feed autodiscovery link, for the page <c>&lt;head&gt;</c>.</summary>
+    private static string BuildCanonicalTag(StaticSiteConfig config, string relativePath)
     {
-        if (string.IsNullOrWhiteSpace(baseUrl))
+        var baseUrl = NormalizeBaseUrl(config.SiteBaseUrl);
+        if (baseUrl.Length == 0)
         {
             return string.Empty;
         }
 
-        var canonicalUrl = BuildCanonicalUrl(NormalizeBaseUrl(baseUrl), relativePath);
-        return $"<link rel=\"canonical\" href=\"{EscapeHtmlAttribute(canonicalUrl)}\">";
+        var tag = "<link rel=\"canonical\" href=\"" + EscapeHtmlAttribute(BuildCanonicalUrl(baseUrl, relativePath)) + "\">";
+        if (config.FeedItemCount > 0)
+        {
+            var feedUrl = EscapeHtmlAttribute(baseUrl + "/" + AtomFeed.FileName);
+            var feedTitle = EscapeHtmlAttribute(config.SiteTitle);
+            tag += "\n<link rel=\"alternate\" type=\"application/atom+xml\" title=\"" + feedTitle + "\" href=\"" + feedUrl + "\">";
+        }
+
+        return tag;
     }
+
+    /// <summary>Percent-encodes each segment of a relative path (tag pages may have non-ASCII names).</summary>
+    internal static string EscapePath(string path) =>
+        string.Join('/', path.Split('/').Select(Uri.EscapeDataString));
 
     private static string BuildCanonicalUrl(string normalizedBaseUrl, string relativePath)
     {
@@ -333,6 +359,9 @@ public class SiteGeneratorService
     }
 }
 
+/// <summary>A generated page that lists posts, such as a tag page.</summary>
+public sealed record ListingPage(string Heading, string RelativePath);
+
 public class PostData
 {
     public string Filename { get; set; } = string.Empty;
@@ -345,4 +374,8 @@ public class PostData
     public int Reactions { get; set; }
     public int Forwards { get; set; }
     public bool IsNoContent { get; set; }
+    /// <summary>Hashtags in the text plus AI-generated tags, without the leading #.</summary>
+    public List<string> Tags { get; set; } = [];
+    /// <summary>Last edit time, or the creation time if the post was never edited.</summary>
+    public DateTime Updated { get; set; }
 }

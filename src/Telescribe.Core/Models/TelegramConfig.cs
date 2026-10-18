@@ -9,6 +9,12 @@ public class TelegramConfig
     public int SummaryCharacterCount { get; set; } = 200;
 
     /// <summary>
+    /// Where the Telegram login session is stored. Empty uses <c>WTelegram.session</c> in the working directory.
+    /// Keep it private: anyone with this file can act as your Telegram account.
+    /// </summary>
+    public string SessionPath { get; set; } = string.Empty;
+
+    /// <summary>
     /// Documents larger than this many megabytes are not downloaded (their posts still export). 0 means no limit.
     /// </summary>
     public int MaxMediaSizeMB { get; set; } = 0;

@@ -143,6 +143,7 @@ public partial class TelegramService : IDisposable
             case "api_id": return _config.ApiId.ToString();
             case "api_hash": return _config.ApiHash;
             case "phone_number": return _config.PhoneNumber;
+            case "session_pathname": return string.IsNullOrWhiteSpace(_config.SessionPath) ? null : _config.SessionPath;
             case "verification_code":
                 Console.Write("Enter verification code: ");
                 return Console.ReadLine();
@@ -217,10 +218,10 @@ public partial class TelegramService : IDisposable
                 }
             }
 
-            await foreach (var message in EnumerateHistoryAsync(inputPeer, cancellationToken))
+            await foreach (var item in EnumerateHistoryAsync(inputPeer, cancellationToken))
             {
-                var post = await ConvertToTelegramPostAsync(message);
-                foreach (var completed in merger.Add(post, message.grouped_id))
+                var post = await ConvertToTelegramPostAsync(item.Message, item.ForwardedFrom);
+                foreach (var completed in merger.Add(post, item.Message.grouped_id))
                 {
                     await RecordAsync(completed);
                 }
@@ -233,6 +234,7 @@ public partial class TelegramService : IDisposable
 
             exportSummary.TotalPosts = exportSummary.Posts.Count;
             await SaveSummaryAsync(exportSummary);
+            StatsHistory.AppendChanges(StatsHistory.DefaultPath(_exportPath), exportSummary.ExportTime, exportSummary.Posts);
 
             Console.WriteLine($"Exported {exportSummary.TotalPosts} posts to {_exportPath}");
             return exportSummary;
@@ -244,8 +246,27 @@ public partial class TelegramService : IDisposable
         }
     }
 
+    private sealed record HistoryMessage(Message Message, string ForwardedFrom);
+
+    /// <summary>The display name of the original sender of a forwarded message, or empty.</summary>
+    private static string ResolveForwardedFrom(Message message, IPeerResolver resolver)
+    {
+        var header = message.fwd_from;
+        if (header is null)
+        {
+            return string.Empty;
+        }
+
+        if (!string.IsNullOrWhiteSpace(header.from_name))
+        {
+            return header.from_name;
+        }
+
+        return header.from_id is null ? string.Empty : resolver.UserOrChat(header.from_id)?.ToString()?.TrimStart('@') ?? string.Empty;
+    }
+
     /// <summary>Walks the channel history from the newest message to the oldest, one page at a time.</summary>
-    private async IAsyncEnumerable<Message> EnumerateHistoryAsync(
+    private async IAsyncEnumerable<HistoryMessage> EnumerateHistoryAsync(
         InputPeer peer,
         [EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
@@ -275,7 +296,7 @@ public partial class TelegramService : IDisposable
             {
                 if (messageBase is Message message)
                 {
-                    yield return message;
+                    yield return new HistoryMessage(message, ResolveForwardedFrom(message, page));
                 }
             }
 
@@ -361,7 +382,7 @@ public partial class TelegramService : IDisposable
         };
     }
 
-    private async Task<TelegramPost> ConvertToTelegramPostAsync(Message message)
+    private async Task<TelegramPost> ConvertToTelegramPostAsync(Message message, string forwardedFrom)
     {
         // Never drop a post: always produce at minimum one with its raw content.
         var post = new TelegramPost
@@ -373,11 +394,18 @@ public partial class TelegramService : IDisposable
             EditedAt = message.edit_date != default ? message.edit_date : null,
             TotalForwards = message.forwards,
             PublicForwards = 0,
-            PrivateForwards = 0
+            PrivateForwards = 0,
+            ForwardedFrom = forwardedFrom,
+            ReplyToMessageId = message.reply_to is MessageReplyHeader { reply_to_peer_id: null } reply && reply.reply_to_msg_id > 0
+                ? reply.reply_to_msg_id
+                : null
         };
 
         if (message.reactions?.results != null)
+        {
             post.Reactions = message.reactions.results.Sum(r => r.count);
+            post.ReactionBreakdown = ReactionLabels.Count(message.reactions.results.Select(r => (r.reaction, r.count)));
+        }
 
         try
         {
@@ -788,15 +816,15 @@ public partial class TelegramService : IDisposable
                 }
             }
 
-            await foreach (var message in EnumerateHistoryAsync(inputPeer, cancellationToken))
+            await foreach (var item in EnumerateHistoryAsync(inputPeer, cancellationToken))
             {
-                if (message.Date < cutoff)
+                if (item.Message.Date < cutoff)
                 {
                     break;
                 }
 
-                var post = await ConvertToTelegramPostAsync(message);
-                foreach (var completed in merger.Add(post, message.grouped_id))
+                var post = await ConvertToTelegramPostAsync(item.Message, item.ForwardedFrom);
+                foreach (var completed in merger.Add(post, item.Message.grouped_id))
                 {
                     await RecordAsync(completed);
                 }
@@ -844,7 +872,8 @@ public partial class TelegramService : IDisposable
             TotalForwards = post.TotalForwards,
             PublicForwards = post.PublicForwards,
             PrivateForwards = post.PrivateForwards,
-            ContentPreview = GetContentPreview(post.Content)
+            ContentPreview = GetContentPreview(post.Content),
+            ReactionBreakdown = post.ReactionBreakdown
         };
     }
 
@@ -859,6 +888,13 @@ public partial class TelegramService : IDisposable
             if (existingSummary == null)
             {
                 return;
+            }
+
+            // First update since history tracking existed: record the previous export as the baseline.
+            var historyPath = StatsHistory.DefaultPath(_exportPath);
+            if (!File.Exists(historyPath))
+            {
+                StatsHistory.AppendChanges(historyPath, existingSummary.ExportTime, existingSummary.Posts);
             }
 
             existingSummary.ExportTime = updateSummary.UpdateTime;
@@ -878,6 +914,10 @@ public partial class TelegramService : IDisposable
             existingSummary.TotalPosts = existingSummary.Posts.Select(p => p.PostId).Distinct().Count();
 
             await File.WriteAllTextAsync(Path.Combine(_exportPath, "summary.json"), JsonSerializer.Serialize(existingSummary, SummaryJson));
+            StatsHistory.AppendChanges(
+                StatsHistory.DefaultPath(_exportPath),
+                updateSummary.UpdateTime,
+                updateSummary.NewPosts.Concat(refreshedPosts.Select(CreatePostSummary)));
             Console.WriteLine($"Updated export summary: {existingSummary.TotalPosts} total posts");
         }
         catch (Exception ex)
@@ -904,6 +944,7 @@ public partial class TelegramService : IDisposable
         existingPost.PublicForwards = updatedPost.PublicForwards;
         existingPost.PrivateForwards = updatedPost.PrivateForwards;
         existingPost.ContentPreview = updatedPost.ContentPreview;
+        existingPost.ReactionBreakdown = updatedPost.ReactionBreakdown;
     }
 
     public void Dispose()

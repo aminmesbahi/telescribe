@@ -1,3 +1,4 @@
+using System.Net;
 using System.Text;
 using System.Text.RegularExpressions;
 using Telescribe.Core.Export;
@@ -19,6 +20,8 @@ public sealed class SiteBuildResult
     public bool HasAboutPage { get; init; }
     public string? SitemapPath { get; init; }
     public string? RobotsPath { get; init; }
+    public string? FeedPath { get; init; }
+    public int TagPages { get; init; }
     public List<string> Warnings { get; init; } = [];
 }
 
@@ -28,6 +31,9 @@ public sealed class SiteBuildResult
 /// </summary>
 public sealed partial class SiteBuilder
 {
+    /// <summary>Written into every generated site so that "clean" knows it is safe to delete the folder.</summary>
+    public const string MarkerFileName = ".telescribe-site";
+
     private static readonly UTF8Encoding Utf8NoBom = new(encoderShouldEmitUTF8Identifier: false);
 
     private readonly StaticSiteConfig _config;
@@ -45,6 +51,29 @@ public sealed partial class SiteBuilder
         Directory.Exists(exportDirectory)
             ? Directory.GetFiles(exportDirectory, "*.md", SearchOption.TopDirectoryOnly)
             : [];
+
+    /// <summary>The configured output folder, or <c>site</c> inside the exports folder.</summary>
+    public static string ResolveSiteDirectory(StaticSiteConfig config, string exportDirectory) =>
+        string.IsNullOrWhiteSpace(config.OutputDirectory) ? Path.Combine(exportDirectory, "site") : config.OutputDirectory;
+
+    /// <summary>
+    /// Deletes a previously generated site so the next build starts from scratch. Refuses to touch a non-empty
+    /// folder that Telescribe did not create.
+    /// </summary>
+    public static void CleanSiteDirectory(string siteDirectory)
+    {
+        if (!Directory.Exists(siteDirectory))
+        {
+            return;
+        }
+
+        if (!File.Exists(Path.Combine(siteDirectory, MarkerFileName)) && Directory.EnumerateFileSystemEntries(siteDirectory).Any())
+        {
+            throw new InvalidOperationException($"Refusing to clean '{siteDirectory}': it was not created by Telescribe (no {MarkerFileName} file).");
+        }
+
+        Directory.Delete(siteDirectory, recursive: true);
+    }
 
     public async Task<SiteBuildResult> BuildAsync(string exportDirectory, string siteDirectory, CancellationToken cancellationToken = default)
     {
@@ -74,6 +103,12 @@ public sealed partial class SiteBuilder
             .OrderByDescending(p => p.Date)
             .ToList();
 
+        var generatedAt = DateTime.Now;
+
+        // Tag pages, and a tag list at the end of each post that belongs to one.
+        var tags = _config.GenerateTagPages ? TagIndex.Build(sitePosts, _config.MinPostsPerTag) : [];
+        AppendTagLinks(sitePosts, tags);
+
         var written = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         int newPages = 0, updatedPages = 0;
         foreach (var post in sitePosts)
@@ -85,12 +120,22 @@ public sealed partial class SiteBuilder
             written.Add(Path.GetFileName(path));
         }
 
-        var removed = RemoveStalePages(postsDirectory, written);
+        var removed = RemoveStalePages(postsDirectory, "*.html", written);
 
         var listedCount = _config.MaxPostsInIndex > 0 ? Math.Min(_config.MaxPostsInIndex, sitePosts.Count) : sitePosts.Count;
         var listed = sitePosts.Take(listedCount).ToList();
         var indexPath = Path.Combine(siteDirectory, "index.html");
-        await WriteHtmlAsync(indexPath, InlineCss(_generator.RenderIndexPage(_config, listed, DateTime.Now, sitePosts.Count), css), cancellationToken);
+        await WriteHtmlAsync(indexPath, InlineCss(_generator.RenderIndexPage(_config, listed, generatedAt, sitePosts.Count), css), cancellationToken);
+
+        var tagFiles = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var tag in tags)
+        {
+            var page = _generator.RenderIndexPage(_config, tag.Posts, generatedAt, tag.Posts.Count, new ListingPage("#" + tag.Display, tag.FileName));
+            await WriteHtmlAsync(Path.Combine(siteDirectory, tag.FileName), InlineCss(page, css), cancellationToken);
+            tagFiles.Add(tag.FileName);
+        }
+
+        RemoveStalePages(siteDirectory, "tag-*.html", tagFiles);
 
         var hasAbout = _generator.HasTemplate("about.html");
         if (hasAbout)
@@ -98,19 +143,33 @@ public sealed partial class SiteBuilder
             await WriteHtmlAsync(Path.Combine(siteDirectory, "about.html"), InlineCss(_generator.RenderAboutPage(_config), css), cancellationToken);
         }
 
-        string? sitemapPath = null, robotsPath = null;
+        string? sitemapPath = null, robotsPath = null, feedPath = null;
+        var feedFile = Path.Combine(siteDirectory, AtomFeed.FileName);
         if (!string.IsNullOrWhiteSpace(_config.SiteBaseUrl))
         {
             sitemapPath = Path.Combine(siteDirectory, "sitemap.xml");
-            await File.WriteAllTextAsync(sitemapPath, _generator.GenerateSitemap(sitePosts, _config.SiteBaseUrl, hasAbout), Utf8NoBom, cancellationToken);
+            await File.WriteAllTextAsync(sitemapPath, _generator.GenerateSitemap(sitePosts, _config.SiteBaseUrl, hasAbout, tags.Select(t => t.FileName)), Utf8NoBom, cancellationToken);
 
             robotsPath = Path.Combine(siteDirectory, "robots.txt");
             await File.WriteAllTextAsync(robotsPath, _generator.GenerateRobotsTxt(_config.SiteBaseUrl), Utf8NoBom, cancellationToken);
+
+            if (_config.FeedItemCount > 0)
+            {
+                feedPath = feedFile;
+                await File.WriteAllTextAsync(feedPath, AtomFeed.Build(_config, _generator.Template, sitePosts, _config.FeedItemCount, DateTime.UtcNow), Utf8NoBom, cancellationToken);
+            }
         }
         else
         {
-            warnings.Add("StaticSite:SiteBaseUrl is not configured; canonical tags, sitemap.xml and robots.txt were skipped.");
+            warnings.Add("StaticSite:SiteBaseUrl is not configured; canonical tags, sitemap.xml, robots.txt and feed.xml were skipped.");
         }
+
+        if (feedPath is null && File.Exists(feedFile))
+        {
+            File.Delete(feedFile);
+        }
+
+        await File.WriteAllTextAsync(Path.Combine(siteDirectory, MarkerFileName), "Generated by Telescribe. Safe to delete with 'build --clean'.\n", cancellationToken);
 
         return new SiteBuildResult
         {
@@ -125,10 +184,36 @@ public sealed partial class SiteBuilder
             HasAboutPage = hasAbout,
             SitemapPath = sitemapPath,
             RobotsPath = robotsPath,
+            FeedPath = feedPath,
+            TagPages = tags.Count,
             Warnings = warnings
         };
     }
 
+    /// <summary>Adds a "#tag" list under each post for the tags that have a page of their own.</summary>
+    private static void AppendTagLinks(IReadOnlyList<PostData> posts, IReadOnlyList<TagInfo> tags)
+    {
+        if (tags.Count == 0)
+        {
+            return;
+        }
+
+        var byKey = tags.ToDictionary(t => t.Key, StringComparer.OrdinalIgnoreCase);
+        foreach (var post in posts)
+        {
+            var links = post.Tags
+                .Where(byKey.ContainsKey)
+                .Select(tag => byKey[tag])
+                .Select(tag => $"<a href=\"../{WebUtility.HtmlEncode(tag.Href)}\">#{WebUtility.HtmlEncode(tag.Display)}</a>")
+                .ToList();
+
+            if (links.Count > 0)
+            {
+                post.Content += "\n<p class=\"post-tags\" style=\"display:flex;flex-wrap:wrap;gap:.6rem;margin-top:1.5rem;font-size:.9em\">" +
+                                string.Join(' ', links) + "</p>\n";
+            }
+        }
+    }
     /// <summary>Parses one exported Markdown file into the data a post page and card need.</summary>
     public static async Task<PostData> LoadPostAsync(string markdownPath, CancellationToken cancellationToken = default)
     {
@@ -141,6 +226,7 @@ public sealed partial class SiteBuilder
         var title = PostMarkdown.ExtractTitle(content) ?? fileName;
         var (views, reactions, forwards) = PostMarkdown.ExtractMetrics(content);
         var isNoContent = PostMarkdown.IsNoContent(content);
+        var created = PostMarkdown.ExtractCreationDate(content);
 
         return new PostData
         {
@@ -148,7 +234,9 @@ public sealed partial class SiteBuilder
             Title = title,
             Preview = isNoContent ? "📊 Poll or media-only post" : PostMarkdown.ExtractPreview(content),
             Content = PostHtmlRenderer.Render(content, title),
-            Date = PostMarkdown.ExtractCreationDate(content),
+            Date = created,
+            Updated = PostMarkdown.ExtractEditedDate(content) ?? created,
+            Tags = TagIndex.ExtractTags(content, PostMarkdown.ReadEnrichment(content, 0, null)?.Hashtags),
             Views = views,
             Reactions = reactions,
             Forwards = forwards,
@@ -205,10 +293,10 @@ public sealed partial class SiteBuilder
         return copied;
     }
 
-    private static int RemoveStalePages(string postsDirectory, HashSet<string> keep)
+    private static int RemoveStalePages(string directory, string pattern, HashSet<string> keep)
     {
         var removed = 0;
-        foreach (var page in Directory.EnumerateFiles(postsDirectory, "*.html"))
+        foreach (var page in Directory.EnumerateFiles(directory, pattern, SearchOption.TopDirectoryOnly))
         {
             if (!keep.Contains(Path.GetFileName(page)))
             {

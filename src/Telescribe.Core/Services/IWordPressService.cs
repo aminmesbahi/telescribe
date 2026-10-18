@@ -1,4 +1,4 @@
-using Telescribe.Core.Models;
+using Telescribe.Core.Export;
 
 namespace Telescribe.Core.Services;
 
@@ -6,15 +6,10 @@ public interface IWordPressService : IDisposable
 {
     Task<bool> AuthenticateAsync();
 
-    Task<int> CreateOrUpdatePostAsync(TelegramPost telegramPost, string markdownContent, Dictionary<string, string>? mediaUrls = null);
-
     Task<int> EnsureCategoryExistsAsync(string categoryName);
 
-    Task<List<int>> UploadMediaFilesAsync(List<string> mediaFiles, string mediaPath);
-
-    Task<Dictionary<string, string>> UploadMediaFilesAndGetUrlsAsync(List<string> mediaFiles, string mediaPath);
-
-    Task<WordPressUploadSummary> UploadPostsAsync(List<TelegramPost> posts, string exportsPath);
+    /// <summary>Publishes new posts and updates changed ones. Posts whose content is unchanged are skipped.</summary>
+    Task<WordPressUploadSummary> SyncAsync(IReadOnlyList<ExportedPost> posts, bool force = false, CancellationToken cancellationToken = default);
 }
 
 public class WordPressUploadSummary
@@ -22,6 +17,7 @@ public class WordPressUploadSummary
     public int TotalPosts { get; set; }
     public int NewPosts { get; set; }
     public int UpdatedPosts { get; set; }
+    public int SkippedPosts { get; set; }
     public int FailedPosts { get; set; }
     public int MediaFilesUploaded { get; set; }
     public DateTime UploadTime { get; set; } = DateTime.UtcNow;

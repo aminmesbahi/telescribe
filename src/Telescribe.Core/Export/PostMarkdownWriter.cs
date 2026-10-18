@@ -13,38 +13,14 @@ public static class PostMarkdownWriter
         var builder = new StringBuilder();
         AppendMetrics(builder, post);
         builder.AppendLine();
-        AppendArticleHeader(builder, post, includeTitle: true);
+        AppendArticleHeader(builder, post);
         AppendBody(builder, post);
         return builder.ToString();
     }
 
-    /// <summary>The file with the AI-generated title and tags, as used by the site builder.</summary>
-    public static string BuildProcessed(TelegramPost post)
-    {
-        var title = !string.IsNullOrWhiteSpace(post.GeneratedTitle) ? post.GeneratedTitle
-            : !string.IsNullOrWhiteSpace(post.ArticleTitle) ? post.ArticleTitle
-            : $"Post {post.Id}";
-
-        var builder = new StringBuilder();
-        builder.Append("# ").AppendLine(title).AppendLine();
-        AppendMetrics(builder, post);
-        if (post.IsLlmProcessed)
-        {
-            builder.AppendLine($"**LLM Processed:** Yes ({post.LlmProvider})");
-        }
-
-        builder.AppendLine();
-        AppendArticleHeader(builder, post, includeTitle: false);
-
-        if (post.Hashtags.Count > 0)
-        {
-            builder.AppendLine($"**Tags:** {string.Join(" ", post.Hashtags.Select(h => "#" + h))}").AppendLine();
-        }
-
-        builder.AppendLine("## Content").AppendLine();
-        AppendBody(builder, post);
-        return builder.ToString();
-    }
+    /// <summary>The raw file plus the AI-generated title and tags (see <see cref="PostMarkdown.ApplyEnrichment"/>).</summary>
+    public static string BuildProcessed(TelegramPost post) =>
+        PostMarkdown.ApplyEnrichment(BuildRaw(post), post.GeneratedTitle, post.Hashtags, post.LlmProvider);
 
     public static string BuildMediaMarkdown(string mediaFile)
     {
@@ -88,16 +64,26 @@ public static class PostMarkdownWriter
         builder.AppendLine($"**Views:** {post.Views}");
         builder.AppendLine($"**Reactions:** {post.Reactions}");
         builder.AppendLine($"**Forwards:** {post.TotalForwards}");
+
+        if (!string.IsNullOrWhiteSpace(post.ForwardedFrom))
+        {
+            builder.AppendLine($"**Forwarded from:** {post.ForwardedFrom.ReplaceLineEndings(" ")}");
+        }
+
+        if (post.ReplyToMessageId is { } replyTo)
+        {
+            builder.AppendLine($"**Reply to:** {replyTo}");
+        }
     }
 
-    private static void AppendArticleHeader(StringBuilder builder, TelegramPost post, bool includeTitle)
+    private static void AppendArticleHeader(StringBuilder builder, TelegramPost post)
     {
         if (post.PostType != "article")
         {
             return;
         }
 
-        if (includeTitle && !string.IsNullOrWhiteSpace(post.ArticleTitle))
+        if (!string.IsNullOrWhiteSpace(post.ArticleTitle))
         {
             builder.Append("# ").AppendLine(post.ArticleTitle).AppendLine();
         }

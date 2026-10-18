@@ -25,38 +25,46 @@ Telescribe turns your Telegram channel into a content hub. It exports posts with
 - Exports to Markdown files for easy processing
 
 ### 🤖 **AI Content Processing**
-- **Multi-Provider Support**: OpenAI, DeepSeek, Ollama
-- **Smart Title Generation**: Automatically create readable titles for posts
-- **Hashtag Extraction**: Pull relevant hashtags from content
-- **Content Enhancement**: Improve readability and SEO
-- **Batch Processing**: Handle large volumes of posts efficiently
+- **Providers**: OpenAI, DeepSeek and Ollama (or any OpenAI-compatible endpoint via `Llm:BaseUrl`), all through one `Microsoft.Extensions.AI` client
+- **Titles and hashtags**: generated per post in your language (`Llm:Language`), including Persian hashtags; Telegram articles keep their own title
+- **Safe to re-run**: the pristine export stays in `exports/raw`; enriched posts are skipped next time, and a refresh from Telegram keeps the AI title and tags
+- **Robust**: timeouts, retries with backoff for rate limits and network errors, reasoning-model aware (`gpt-5`, `o*`), and post text is passed as data, not instructions
+- Run it with `ai` (options `--force`, `--limit N`) or `sync --ai`
 
 ### 🏗️ **Static Website Generation**
-- Generate a responsive static website from your exported posts
+- Generate a responsive static website from your exported posts, built **incrementally** into one stable folder (`exports/site`, or `StaticSite:OutputDirectory`)
 - **Multi-Language Templates**: English (`en`) and Persian/Farsi (`fa`) built in, plus custom templates
 - **Search, Sort, and Pagination**: All client-side with no external dependencies
 - **Safe by default**: post text is rendered with a real Markdown parser (Markdig); raw HTML is escaped, only `http`, `https`, `mailto` and `tel` links are kept, and template values are HTML-escaped
 - **Every post gets a page**: `MaxPostsInIndex` only limits how many posts the index page lists (use `0` for all)
-- **Browser History Support**: Back and forward navigation works naturally
+- **Tag pages**: hashtags in your posts plus AI tags get a page each (`GenerateTagPages`, `MinPostsPerTag`) and are linked from the posts
+- **Atom feed** (`feed.xml`) announced in every page's `<head>` when `SiteBaseUrl` is set
+- **Players for media**: local videos and audio files get a native player (the download link stays)
+- **Forwarded posts and replies** keep their "forwarded from" / "in reply to" note
 - **SEO Ready**: Sitemap.xml, robots.txt, canonical URLs, Open Graph/Twitter tags and schema.org JSON-LD (set `AuthorName`, `PublisherName`, `SameAs`)
 - **About Page**: Rendered from template if your template includes one
+- **Deploy**: `sync --deploy <folder>` copies only changed files (add `--mirror` to remove files that disappeared)
 
 ### 📊 **Analytics and Reporting**
-- Comprehensive analytics reports with engagement metrics
-- **Template-Based Reports**: HTML reports via the template system
-- **Key Metrics**: Views, reactions, forwards, and engagement analysis
-- **Visual Charts**: Dashboard-style analytics interface
+- HTML report with totals, the most popular, recent, reacted and forwarded posts
+- **Charts** (inline SVG, no scripts): posts per month, when you post (weekday × hour heatmap), reactions by emoji, and total views over time
+- **Growth history**: every export/update appends a snapshot to `stats-history.jsonl`, because Telegram only reports current totals
+- **Engagement ranking**: (reactions + forwards) per view
 
 ### 🌐 **WordPress Integration**
-- Direct publishing to WordPress sites
-- **Media Upload**: Automatic media file uploads to WordPress
-- **Category Management**: Automatic category creation and assignment
-- **Post Mapping**: Track published posts to avoid duplicates
+- Publishes new posts and updates changed ones (statistics changes alone never trigger an update)
+- **Media upload** once per file, remembered in `exports/wordpress_state.json`
+- **Category and tag management** with tags looked up in one request
+- Same safe Markdown rendering as the static site; `wp --dry-run` shows what would happen without contacting WordPress
+- State is saved after every post, so an interrupted run never creates duplicates
 
 ### ⚙️ **Advanced Features**
 - **Template System**: Flexible `{{placeholder}}` engine, easy to extend
-- **Media Handling**: Copies all Telegram media into the generated site
+- **Media Handling**: Copies Telegram media into the generated site; existing files are never re-downloaded
 - **Empty Post Filtering**: Skip polls and media-only posts via config
+- **Backups**: `archive` packs posts, media and statistics into one ZIP
+- **Automation**: `sync` does everything in one non-interactive run; see [docs/automation.md](docs/automation.md) for cron, Task Scheduler, Docker and GitHub Actions
+
 
 ## Requirements
 
@@ -144,35 +152,43 @@ The AI (`Llm`) and WordPress options are bound the same way. Their keys are `Llm
 
 ### 3. Run the Application
 
-Interactive mode:
+Interactive menu:
 ```bash
 cd Telescribe.Console
 dotnet run
 ```
 
-Command line shortcuts (exit code is non-zero on failure):
+Or run a command directly (exit code is non-zero on failure; `--help` works on every command):
+
+| Command | What it does |
+|---|---|
+| `export` | Download the full channel history |
+| `update` | Fetch new posts and refresh the statistics of recent ones |
+| `ai [--force] [--limit N]` | Generate titles and hashtags |
+| `build [-o DIR] [--clean] [--no-open]` | Build or refresh the static site (alias `static`) |
+| `report` | Generate the analytics report (alias `reports`) |
+| `wp [--dry-run] [--force]` | Publish new and changed posts to WordPress (alias `wordpress`) |
+| `archive [-o FILE]` | Pack posts, media and statistics into a ZIP |
+| `sync [--ai] [--wordpress] [--deploy DIR [--mirror]] [--open]` | Update from Telegram, optional AI/WordPress, rebuild the site, optional deploy (alias `update-site`) |
+
 ```bash
-# Generate static website directly
-dotnet run --project Telescribe.Console static
-
-# Refresh the most recent generated site (syncs Telegram first)
-dotnet run --project Telescribe.Console update-site
-
-# Generate analytics reports directly
-dotnet run --project Telescribe.Console reports
+dotnet run --project Telescribe.Console -- sync --ai --deploy /var/www/mychannel
 ```
 
-The first login asks for the verification code Telegram sends you (and your 2FA password, typed without echo if you use one). The session is then stored in `WTelegram.session`, which is git-ignored; keep it private.
+The first login asks for the verification code Telegram sends you (and your 2FA password, typed without echo if you use one). The session is then stored in `WTelegram.session` (or `TelegramConfig:SessionPath`), which is git-ignored; keep it private.
+
+`build --clean` deletes the previous site first, but only if Telescribe created it (it checks for a marker file), so a wrongly configured output folder cannot wipe your documents.
 
 ### 4. Menu Options
 1. **Export Channel Posts** - Download all posts from Telegram
 2. **Update Existing Posts** - Sync new posts since the last export
-3. **AI Content Processing** - Coming soon
-4. **WordPress Integration** - Coming soon
-5. **Analytics Reports** - Generate engagement insights
-6. **Static Website Builder** - Create a browsable static website
+3. **AI Content Processing** - Generate titles and hashtags
+4. **WordPress Integration** - Publish new and changed posts
+5. **Analytics Reports** - Charts and engagement insights
+6. **Static Website Builder** - Build or refresh the site
 7. **Exit Application**
-8. **Update Static Website** - Sync Telegram, then refresh the latest generated site
+8. **Sync** - Update from Telegram, then rebuild the site
+9. **Archive** - Pack posts and media into a ZIP
 
 ## Templates
 
@@ -183,13 +199,17 @@ Templates live in `src/Telescribe.Console/templates/{name}/` and consist of plai
 
 ## Roadmap
 
-### Version 1.0 (In Development)
-- [ ] Complete AI content processing
-- [ ] Complete WordPress integration
-- [ ] Stable release with bug fixes
+### Version 1.0 (Current)
+- [x] AI content processing (titles, hashtags)
+- [x] WordPress publishing
+- [x] Command-line interface and one-shot `sync`
+- [x] Tags, Atom feed, charts and growth history
+- [ ] Stable release (waiting for the .NET 11 GA)
 
 ### Version 2.0 (Planned)
-- [ ] Real-time sync and auto-update
+- [ ] Real-time sync (a long-running watcher instead of scheduled `sync`)
+- [ ] Full-text search index for the static site (e.g. Pagefind)
+- [ ] Export of channel comments (discussion group)
 - [ ] Database support for large archives
 - [ ] REST API for programmatic access
 - [ ] Web dashboard
@@ -198,12 +218,12 @@ Templates live in `src/Telescribe.Console/templates/{name}/` and consist of plai
 - [ ] Multi-channel support
 - [ ] Content scheduling
 - [ ] Plugin system for custom extensions
-- [ ] Docker and cloud deployment
+- [ ] Hosted/cloud deployment
 
 ## Known Issues
 
-- **LLM Processing**: Partially implemented, still in development
-- **WordPress Upload**: Menu option visible but full integration is in progress
+- **LLM and WordPress**: implemented and unit-tested, but not yet exercised against live services by the maintainers; try `wp --dry-run` and `ai --limit 5` first
+- **Stored posts are Markdown files**: statistics and tags are read back from the file header; a per-post JSON store is planned
 - **Article Posts**: Native Telegram article format is not fully supported. Some articles may export as empty or only show metadata. The Instant View page parser works for many cases but not all.
 - **API Rate Limits**: Telegram API has built-in rate limiting; large channels may take a while (the full history is now fetched, not just the latest 1,000 messages)
 - **Existing exports**: albums that an older version exported as separate posts are merged the next time you run an update that covers them; run a full export to rebuild everything

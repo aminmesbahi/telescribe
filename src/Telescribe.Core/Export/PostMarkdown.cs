@@ -23,6 +23,8 @@ public static partial class PostMarkdown
         "**Views:**",
         "**Reactions:**",
         "**Forwards:**",
+        "**Forwarded from:**",
+        "**Reply to:**",
         "**LLM Processed:**",
         "**LLM Provider:**",
         "**Generated Title:**",
@@ -153,6 +155,44 @@ public static partial class PostMarkdown
     }
 
     /// <summary>
+    /// Adds an AI-generated title (as a leading heading) and tags to a raw post file. The result is what the
+    /// exporter stores as the "processed" version of the post; <see cref="ReadEnrichment"/> reads it back.
+    /// </summary>
+    public static string ApplyEnrichment(string rawMarkdown, string? title, IReadOnlyCollection<string>? tags, string? provider)
+    {
+        var hasTitle = !string.IsNullOrWhiteSpace(title);
+        var hasTags = tags is { Count: > 0 };
+        if (!hasTitle && !hasTags && string.IsNullOrWhiteSpace(provider))
+        {
+            return rawMarkdown;
+        }
+
+        var result = new StringBuilder();
+        if (hasTitle)
+        {
+            result.Append("# ").Append(title!.Trim()).Append("\n\n");
+        }
+
+        var inserted = false;
+        foreach (var line in rawMarkdown.TrimStart('﻿').Replace("\r\n", "\n").Split('\n'))
+        {
+            result.Append(line).Append('\n');
+
+            if (!inserted && line.StartsWith("**Forwards:**", StringComparison.Ordinal))
+            {
+                inserted = true;
+                result.Append("**LLM Processed:** Yes (").Append(provider).Append(")\n");
+                if (hasTags)
+                {
+                    result.Append("**Tags:** ").Append(string.Join(' ', tags!.Select(t => "#" + t.TrimStart('#')))).Append('\n');
+                }
+            }
+        }
+
+        return result.ToString().TrimEnd('\n') + "\n";
+    }
+
+    /// <summary>
     /// Reads the AI-generated title, tags and provider back from a processed post file, so that re-exporting a
     /// post (to refresh its statistics) does not discard them. Returns null if the file was not AI-processed.
     /// </summary>
@@ -268,6 +308,58 @@ public static partial class PostMarkdown
 
         return text[..cut].TrimEnd() + ellipsis;
     }
+
+    /// <summary>The time of the last edit, or null if the post was never edited.</summary>
+    public static DateTime? ExtractEditedDate(string content)
+    {
+        foreach (var line in SplitLines(content))
+        {
+            if (line.StartsWith("**Edited:**", StringComparison.Ordinal) &&
+                TryParseUtc(line["**Edited:**".Length..], out var edited))
+            {
+                return edited;
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>File names of the exported media a post links to (decoded), in order of appearance.</summary>
+    public static IReadOnlyList<string> ExtractMediaFiles(string content)
+    {
+        var files = new List<string>();
+        foreach (Match match in MediaLinkRegex().Matches(content))
+        {
+            var name = Uri.UnescapeDataString(match.Groups[1].Value);
+            if (!files.Contains(name))
+            {
+                files.Add(name);
+            }
+        }
+
+        return files;
+    }
+
+    private static bool TryParseUtc(string text, out DateTime value)
+    {
+        text = text.Trim();
+        if (text.EndsWith(" UTC", StringComparison.Ordinal))
+        {
+            text = text[..^4].Trim();
+        }
+
+        if (DateTime.TryParseExact(text, "yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture, DateTimeStyles.None, out var parsed))
+        {
+            value = DateTime.SpecifyKind(parsed, DateTimeKind.Utc);
+            return true;
+        }
+
+        value = default;
+        return false;
+    }
+
+    [GeneratedRegex(@"\]\(\.?/?media/([^)\s]+)\)")]
+    private static partial Regex MediaLinkRegex();
 
     [GeneratedRegex(@"^#{1,6}\s+")]
     private static partial Regex HeadingMarkerRegex();

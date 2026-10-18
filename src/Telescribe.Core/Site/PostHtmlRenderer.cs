@@ -32,13 +32,14 @@ public static partial class PostHtmlRenderer
 
     /// <param name="markdown">Full exported post, including its metadata header.</param>
     /// <param name="postTitle">If set, headings that merely repeat the title are dropped (the page header already shows it).</param>
-    public static string Render(string markdown, string? postTitle = null)
+    /// <param name="mediaUrl">Maps a local media link ("./media/x.jpg") to the URL to emit. Defaults to the post-page relative path.</param>
+    public static string Render(string markdown, string? postTitle = null, Func<string, string>? mediaUrl = null)
     {
         var document = Markdown.Parse(BuildBody(markdown), Pipeline);
 
         Sanitize(document);
         RemoveDuplicateTitleHeadings(document, postTitle);
-        RewriteLinks(document);
+        RewriteLinks(document, mediaUrl ?? DefaultMediaUrl);
 
         return document.ToHtml(Pipeline);
     }
@@ -46,9 +47,23 @@ public static partial class PostHtmlRenderer
     private static string BuildBody(string markdown)
     {
         var lines = new List<string>();
+        var preface = new List<string>();
         foreach (var line in PostMarkdown.SplitLines(markdown))
         {
             var trimmed = line.Trim();
+
+            if (trimmed.StartsWith("**Forwarded from:**", StringComparison.Ordinal))
+            {
+                preface.Add("*↪ Forwarded from " + trimmed["**Forwarded from:**".Length..].Trim() + "*");
+                continue;
+            }
+
+            if (trimmed.StartsWith("**Reply to:**", StringComparison.Ordinal) &&
+                long.TryParse(trimmed["**Reply to:**".Length..].Trim(), System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out var replyTo))
+            {
+                preface.Add($"*[↩ In reply to post {replyTo}]({replyTo}.html)*");
+                continue;
+            }
             if (PostMarkdown.IsHeaderLine(trimmed) ||
                 trimmed.Equals(PostMarkdown.ArticlePreviewOnlyMarker, StringComparison.OrdinalIgnoreCase) ||
                 trimmed.Equals("## Content", StringComparison.Ordinal))
@@ -63,6 +78,11 @@ public static partial class PostHtmlRenderer
             }
 
             lines.Add(line);
+        }
+
+        if (preface.Count > 0)
+        {
+            lines.InsertRange(0, preface.SelectMany(p => new[] { p, string.Empty }));
         }
 
         return string.Join('\n', lines).Trim('\n');
@@ -116,7 +136,10 @@ public static partial class PostHtmlRenderer
         }
     }
 
-    private static void RewriteLinks(MarkdownDocument document)
+    /// <summary>Post pages live in /posts and media in /media.</summary>
+    private static string DefaultMediaUrl(string url) => "../" + (url.StartsWith("./", StringComparison.Ordinal) ? url[2..] : url);
+
+    private static void RewriteLinks(MarkdownDocument document, Func<string, string> mediaUrl)
     {
         foreach (var link in document.Descendants<LinkInline>().ToList())
         {
@@ -124,8 +147,8 @@ public static partial class PostHtmlRenderer
 
             if (IsLocalMediaPath(url))
             {
-                // Post pages live in /posts, media in /media.
-                link.Url = "../" + (url.StartsWith("./", StringComparison.Ordinal) ? url[2..] : url);
+                link.Url = mediaUrl(url);
+                AddPlayer(link);
             }
             else if (HasDisallowedScheme(url))
             {
@@ -148,6 +171,29 @@ public static partial class PostHtmlRenderer
                 attributes.AddPropertyIfNotExist("target", "_blank");
                 attributes.AddPropertyIfNotExist("rel", "noopener noreferrer");
             }
+        }
+    }
+
+    /// <summary>Puts a native player under a link to a local video or audio file; the link stays as the download fallback.</summary>
+    private static void AddPlayer(LinkInline link)
+    {
+        if (link.IsImage || string.IsNullOrEmpty(link.Url))
+        {
+            return;
+        }
+
+        var extension = Path.GetExtension(link.Url).ToLowerInvariant();
+        var source = WebUtility.HtmlEncode(link.Url);
+        string? player = extension switch
+        {
+            ".mp4" or ".webm" or ".mov" or ".m4v" => $"<video controls preload=\"metadata\" style=\"display:block;max-width:100%;margin:10px 0\" src=\"{source}\"></video>",
+            ".mp3" or ".ogg" or ".oga" or ".opus" or ".m4a" or ".wav" or ".flac" => $"<audio controls preload=\"none\" style=\"display:block;width:100%;margin:10px 0\" src=\"{source}\"></audio>",
+            _ => null
+        };
+
+        if (player is not null)
+        {
+            link.InsertAfter(new HtmlInline(player));
         }
     }
 

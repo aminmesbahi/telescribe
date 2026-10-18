@@ -23,4 +23,7 @@ public class PostSummary
     public int PublicForwards { get; set; }
     public int PrivateForwards { get; set; }
     public string ContentPreview { get; set; } = string.Empty;
+
+    /// <summary>Reactions by emoji, as of the last export or update.</summary>
+    public Dictionary<string, int> ReactionBreakdown { get; set; } = [];
 }

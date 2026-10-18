@@ -4,8 +4,7 @@
     <PackageReference Include="Markdig" />
     <PackageReference Include="WTelegramClient" />
     <PackageReference Include="WordPressPCL" />
-    <PackageReference Include="Microsoft.SemanticKernel" />
-    <PackageReference Include="Microsoft.SemanticKernel.Connectors.OpenAI" />
+    <PackageReference Include="Microsoft.Extensions.AI.OpenAI" />
   </ItemGroup>
 
   <ItemGroup>

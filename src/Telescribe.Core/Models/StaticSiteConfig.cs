@@ -26,6 +26,15 @@ public class StaticSiteConfig
     /// <summary>When true, posts with no text content (polls, media-only) are excluded from the generated site.</summary>
     public bool SkipEmptyContentPosts { get; set; } = false;
 
+    /// <summary>Folder the site is written to. Empty uses <c>site</c> inside the exports folder.</summary>
+    public string OutputDirectory { get; set; } = "";
+    /// <summary>Create a page per tag (hashtags in posts plus AI-generated tags) and link them from posts.</summary>
+    public bool GenerateTagPages { get; set; } = true;
+    /// <summary>A tag only gets its own page when at least this many posts use it.</summary>
+    public int MinPostsPerTag { get; set; } = 2;
+    /// <summary>Number of newest posts in feed.xml (needs SiteBaseUrl). 0 disables the feed.</summary>
+    public int FeedItemCount { get; set; } = 30;
+
     /// <summary>Author name used in structured data (JSON-LD). Falls back to <see cref="SiteTitle"/> when empty.</summary>
     public string AuthorName { get; set; } = "";
     /// <summary>Optional author profile URL used in structured data.</summary>

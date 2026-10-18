@@ -13,6 +13,15 @@ public class TelegramPost
     public int PrivateForwards { get; set; }
     public string Content { get; set; } = string.Empty;
     public string Channel { get; set; } = string.Empty;
+
+    /// <summary>Name of the original author or channel when this post was forwarded from elsewhere.</summary>
+    public string ForwardedFrom { get; set; } = string.Empty;
+
+    /// <summary>Id of the channel post this one replies to, if any.</summary>
+    public long? ReplyToMessageId { get; set; }
+
+    /// <summary>Reactions by emoji (custom emoji and paid stars are grouped under their own labels).</summary>
+    public Dictionary<string, int> ReactionBreakdown { get; set; } = [];
     public List<string> MediaFiles { get; set; } = [];
 
     /// <summary>
