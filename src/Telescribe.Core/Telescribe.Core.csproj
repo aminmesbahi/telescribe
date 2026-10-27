@@ -2,6 +2,7 @@
 
   <ItemGroup>
     <PackageReference Include="Markdig" />
+    <PackageReference Include="Microsoft.Extensions.Configuration.Binder" VersionOverride="11.0.0-rc.3.26522.148" />
     <PackageReference Include="WTelegramClient" />
     <PackageReference Include="WordPressPCL" />
     <PackageReference Include="Microsoft.Extensions.AI.OpenAI" />
