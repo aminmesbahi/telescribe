@@ -12,7 +12,7 @@
     <PackageVersion Include="WTelegramClient" Version="4.4.9" />
 
     <!-- Console -->
-    <PackageVersion Include="System.CommandLine" Version="3.0.0-rc.2.26504.105" />
+    <PackageVersion Include="System.CommandLine" Version="3.0.0-rc.3.26522.148" />
     <PackageVersion Include="Microsoft.Extensions.Configuration" Version="11.0.0-rc.3.26522.148" />
     <PackageVersion Include="Microsoft.Extensions.Configuration.Binder" Version="11.0.0-rc.3.26522.148" />
     <PackageVersion Include="Microsoft.Extensions.Configuration.EnvironmentVariables" Version="11.0.0-rc.2.26504.105" />
