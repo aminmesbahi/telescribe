@@ -1,6 +1,5 @@
 # 🔭 Telescribe
 
-[![Qodana](https://qodana.cloud/projects/NV8ow/reports/latest/badge)](https://qodana.cloud/projects/NV8ow)
 [![Security Policy](https://img.shields.io/badge/security-policy-blue?logo=github&logoColor=white)](https://github.com/aminmesbahi/telescribe/blob/main/SECURITY.md)
 
 **Telescribe** is a .NET console application for managing content from your Telegram channel. Export your posts, enrich them with AI, publish a static website, or push everything to WordPress.
@@ -19,7 +18,7 @@ Telescribe turns your Telegram channel into a content hub. It exports posts with
 - Albums (several photos/videos posted together) are merged into a single post
 - Exports polls with vote counts and visual bars
 - Rich text formatting: bold, italic, underline, strikethrough, spoiler, code blocks, links, blockquotes
-- Article posts partially supported (Instant View content extracted, but native Telegram article format may fail)
+- Article posts supported: Instant View pages are fetched on demand, and native Telegram "rich message" articles are extracted (formatted text, lists, links and inline media)
 - Incremental updates: fetch new posts and refresh statistics for recent ones (`RefreshWindowDays`, default 30)
 - Captures views, reactions, and forward counts per post
 - Exports to Markdown files for easy processing
@@ -224,7 +223,7 @@ Templates live in `src/Telescribe.Console/templates/{name}/` and consist of plai
 
 - **LLM and WordPress**: implemented and unit-tested, but not yet exercised against live services by the maintainers; try `wp --dry-run` and `ai --limit 5` first
 - **Stored posts are Markdown files**: statistics and tags are read back from the file header; a per-post JSON store is planned
-- **Article Posts**: Native Telegram article format is not fully supported. Some articles may export as empty or only show metadata. The Instant View page parser works for many cases but not all.
+- **Article Posts**: very large Instant View pages that Telegram delivers in several parts are exported truncated (marked with a partial-content note)
 - **API Rate Limits**: Telegram API has built-in rate limiting; large channels may take a while (the full history is now fetched, not just the latest 1,000 messages)
 - **Existing exports**: albums that an older version exported as separate posts are merged the next time you run an update that covers them; run a full export to rebuild everything
 

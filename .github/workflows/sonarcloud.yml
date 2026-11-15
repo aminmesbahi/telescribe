@@ -1,0 +1,54 @@
+name: SonarCloud
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    types: [opened, synchronize, reopened]
+  workflow_dispatch:
+
+jobs:
+  sonarcloud:
+    name: SonarCloud analysis
+    runs-on: ubuntu-latest
+    env:
+      # Matches your GitHub org (the SonarCloud organization is auto-created from it).
+      SONAR_ORGANIZATION: aminmesbahi
+      # SonarCloud project key (the default SonarCloud proposes is <org>_<repo>);
+      # change it if you picked a different key when creating the project.
+      SONAR_PROJECT_KEY: aminmesbahi_telescribe
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0 # full history gives better blame/relevancy on pull requests
+
+      - name: Set up .NET (version pinned in global.json)
+        uses: actions/setup-dotnet@v6
+        with:
+          global-json-file: global.json
+
+      - name: Install SonarScanner for .NET
+        run: dotnet tool install --global dotnet-sonarscanner
+
+      - name: Restore
+        run: dotnet restore src/Telescribe.slnx
+
+      - name: Begin SonarCloud analysis
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          dotnet sonarscanner begin \
+            /k:"$SONAR_PROJECT_KEY" \
+            /o:"$SONAR_ORGANIZATION" \
+            /d:sonar.token="$SONAR_TOKEN" \
+            /d:sonar.host.url="https://sonarcloud.io"
+
+      - name: Build
+        run: dotnet build src/Telescribe.slnx --configuration Release --no-restore
+
+      - name: End SonarCloud analysis
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+        run: dotnet sonarscanner end /d:sonar.token="$SONAR_TOKEN"

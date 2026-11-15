@@ -50,9 +50,6 @@ Thumbs.db
 src/Telescribe.Console/basehashtags.json
 src/Telescribe.Console/input.txt
 
-# Qodana analysis config
-**/qodana.yaml
-
 # Export folders
 # exports/
 # **/exports/
