@@ -13,36 +13,48 @@ public partial class TelegramService
     {
         try
         {
-            if (webpageBase is not WebPage webpage)
+            var webpage = webpageBase as WebPage;
+
+            // Some article posts arrive with an empty preview (WebPageEmpty / no usable url), so
+            // fall back to the first link in the message text to still resolve them.
+            var url = !string.IsNullOrWhiteSpace(webpage?.url)
+                ? webpage!.url
+                : ExtractFirstUrl(post.Content);
+
+            // messages.getHistory ships only the link-preview metadata: the Instant View page body
+            // (cached_page) is normally absent until it is requested explicitly with
+            // messages.getWebPage. Fetch it before deciding what the post is so that native Telegram
+            // articles don't come through as empty or as plain link text. A cached_page carrying the
+            // "part" flag is only a truncated preview and is completed the same way.
+            var resolved = webpage;
+            if (resolved == null || resolved.cached_page == null ||
+                resolved.cached_page.flags.HasFlag(Page.Flags.part))
             {
-                return;
+                var fetched = await FetchInstantViewWebPageAsync(url);
+                if (fetched != null)
+                {
+                    resolved = fetched;
+                }
             }
 
-            // Telegram does not always set webpage.type == "article" for channel article previews.
-            // Some real article posts arrive with a cached_page, title/url metadata, or a page
-            // description but no explicit type flag. Treat these as article content if they carry
-            // the article metadata that Telegram exposes in the preview object.
-            var isArticle = IsArticleWebPage(webpage);
-
-            if (!isArticle)
+            if (resolved == null || !IsArticleWebPage(resolved))
             {
-                // Regular link previews: the message text already contains the post
-                // content, so there is nothing else to extract.
+                // Regular link previews: the message text already contains the post content.
                 return;
             }
 
             post.PostType = "article";
-            post.ArticleTitle = webpage.title ?? string.Empty;
-            post.ArticleAuthor = webpage.author ?? string.Empty;
-            post.ArticleUrl = !string.IsNullOrWhiteSpace(webpage.url)
-                ? webpage.url
-                : webpage.display_url ?? string.Empty;
-            post.SiteName = webpage.site_name ?? string.Empty;
+            post.ArticleTitle = resolved.title ?? string.Empty;
+            post.ArticleAuthor = resolved.author ?? string.Empty;
+            post.ArticleUrl = !string.IsNullOrWhiteSpace(resolved.url)
+                ? resolved.url
+                : resolved.display_url ?? string.Empty;
+            post.SiteName = resolved.site_name ?? string.Empty;
 
             var articleParts = new List<string>();
 
             // Cover image of the article
-            if (webpage.photo is Photo coverPhoto)
+            if (resolved.photo is Photo coverPhoto)
             {
                 var fileName = $"{post.Id}_article_cover.jpg";
                 if (await DownloadMediaAsync(fileName, 0, stream => _client!.DownloadFileAsync(coverPhoto, stream)))
@@ -52,7 +64,7 @@ public partial class TelegramService
             }
 
             // Document directly attached to the webpage (e.g. a video preview)
-            if (webpage.document is Document webpageDoc && _client != null)
+            if (resolved.document is Document webpageDoc && _client != null)
             {
                 var docFileName = GetDocumentFileName(webpageDoc, post.Id);
                 if (await DownloadMediaAsync(docFileName, webpageDoc.size, stream => _client.DownloadFileAsync(webpageDoc, stream)))
@@ -61,12 +73,12 @@ public partial class TelegramService
                 }
             }
 
-            if (webpage.cached_page != null)
+            if (resolved.cached_page != null)
             {
-                post.IsPartialArticle = webpage.cached_page.flags.HasFlag(Page.Flags.part);
-                var photoMap = await DownloadArticlePhotosAsync(post, webpage.cached_page);
-                var documentMap = await DownloadArticleDocumentsAsync(post, webpage.cached_page);
-                var body = ConvertPageBlocksToMarkdown(webpage.cached_page, photoMap, documentMap, post);
+                post.IsPartialArticle = resolved.cached_page.flags.HasFlag(Page.Flags.part);
+                var photoMap = await DownloadArticlePhotosAsync(post, resolved.cached_page);
+                var documentMap = await DownloadArticleDocumentsAsync(post, resolved.cached_page);
+                var body = ConvertPageBlocksToMarkdown(resolved.cached_page, photoMap, documentMap, post);
                 if (!string.IsNullOrWhiteSpace(body))
                 {
                     articleParts.Add(body);
@@ -74,14 +86,14 @@ public partial class TelegramService
             }
 
             // Fallback for articles without a cached page: description, then embed URL
-            if (articleParts.Count == 0 && !string.IsNullOrWhiteSpace(webpage.description))
+            if (articleParts.Count == 0 && !string.IsNullOrWhiteSpace(resolved.description))
             {
-                articleParts.Add(webpage.description);
+                articleParts.Add(resolved.description);
             }
 
-            if (articleParts.Count == 0 && !string.IsNullOrWhiteSpace(webpage.embed_url))
+            if (articleParts.Count == 0 && !string.IsNullOrWhiteSpace(resolved.embed_url))
             {
-                articleParts.Add($"[Embedded content]({webpage.embed_url})");
+                articleParts.Add($"[Embedded content]({resolved.embed_url})");
             }
 
             if (articleParts.Count == 0)
@@ -106,6 +118,46 @@ public partial class TelegramService
         }
     }
 
+    /// <summary>
+    /// Extracts a "rich message" post: Telegram's rich-text posts (the successor to Instant View
+    /// articles). Their content lives in <see cref="RichMessage.blocks"/> — a set of
+    /// <see cref="PageBlock"/> objects — rather than in <c>message.text</c> or <c>media</c>, so they
+    /// previously exported as empty "[No content]" posts.
+    /// </summary>
+    private async Task HandleRichMessageAsync(TelegramPost post, RichMessage richMessage)
+    {
+        try
+        {
+            post.PostType = "article";
+
+            // RichMessage carries the same PageBlock content as an Instant View page, so reuse the
+            // article conversion pipeline by adapting it into a Page.
+            var page = new Page
+            {
+                blocks = richMessage.blocks,
+                photos = richMessage.photos,
+                documents = richMessage.documents
+            };
+
+            var photoMap = await DownloadArticlePhotosAsync(post, page);
+            var documentMap = await DownloadArticleDocumentsAsync(post, page);
+            var body = ConvertPageBlocksToMarkdown(page, photoMap, documentMap, post);
+
+            if (string.IsNullOrWhiteSpace(body))
+            {
+                return;
+            }
+
+            post.Content = string.IsNullOrWhiteSpace(post.Content)
+                ? body
+                : post.Content + "\n\n" + body;
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Failed to handle rich message post {post.Id}: {ex.Message}");
+        }
+    }
+
     private static bool IsArticleWebPage(WebPage webpage)
     {
         // Explicitly typed as article by Telegram
@@ -118,6 +170,48 @@ public partial class TelegramService
 
         return false;
     }
+
+    /// <summary>
+    /// Fetches the full <see cref="WebPage"/> (including its Instant View <see cref="Page"/>) for a
+    /// link preview. <see cref="Messages_GetHistory"/> delivers the preview metadata but leaves
+    /// <see cref="WebPage.cached_page"/> null, so the page body has to be requested explicitly with
+    /// <c>messages.getWebPage</c>.
+    /// </summary>
+    private async Task<WebPage?> FetchInstantViewWebPageAsync(string? url)
+    {
+        if (_client == null || string.IsNullOrWhiteSpace(url))
+        {
+            return null;
+        }
+
+        try
+        {
+            // Pass an empty hash so Telegram always returns the full page instead of a
+            // webPageNotModified result (which carries no cached_page).
+            var response = await _client.Messages_GetWebPage(url, hash: 0);
+            return response.webpage as WebPage;
+        }
+        catch (RpcException ex)
+        {
+            Console.WriteLine($"Could not fetch Instant View page for {url}: {ex.Message}");
+            return null;
+        }
+    }
+
+    /// <summary>First http(s) link found in a message, used when a post has no link preview.</summary>
+    private static string? ExtractFirstUrl(string? content)
+    {
+        if (string.IsNullOrWhiteSpace(content))
+        {
+            return null;
+        }
+
+        var match = UrlRegex().Match(content);
+        return match.Success ? match.Value.TrimEnd(')', ']', '.', ',', ';', '}', '>') : null;
+    }
+
+    [GeneratedRegex(@"https?://[^\s<>""')\]]+", RegexOptions.IgnoreCase)]
+    private static partial Regex UrlRegex();
 
     private async Task<Dictionary<long, string>> DownloadArticlePhotosAsync(TelegramPost post, Page page)
     {
@@ -876,6 +970,19 @@ public partial class TelegramService
             TextConcat concat => string.Concat(concat.texts?.Select(ConvertRichTextToMarkdown) ?? []),
             TextAnchor anchor => ConvertRichTextToMarkdown(anchor.text),
             TextImage => "🖼️",
+            TextCustomEmoji customEmoji => customEmoji.alt ?? string.Empty,
+            TextSpoiler spoiler => $"||{ConvertRichTextToMarkdown(spoiler.text)}||",
+            TextHashtag hashtag => ConvertRichTextToMarkdown(hashtag.text),
+            TextMention mention => ConvertRichTextToMarkdown(mention.text),
+            TextCashtag cashtag => ConvertRichTextToMarkdown(cashtag.text),
+            TextBotCommand command => ConvertRichTextToMarkdown(command.text),
+            TextBankCard bankCard => ConvertRichTextToMarkdown(bankCard.text),
+            TextAutoUrl autoUrl => ConvertRichTextToMarkdown(autoUrl.text),
+            TextAutoEmail autoEmail => ConvertRichTextToMarkdown(autoEmail.text),
+            TextAutoPhone autoPhone => ConvertRichTextToMarkdown(autoPhone.text),
+            TextDate date => ConvertRichTextToMarkdown(date.text),
+            TextDiff diff => ConvertRichTextToMarkdown(diff.text),
+            TextMath math => math.source ?? string.Empty,
             _ => string.Empty
         };
     }

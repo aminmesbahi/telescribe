@@ -419,6 +419,16 @@ public partial class TelegramService : IDisposable
 
         try
         {
+            if (message.rich_message is RichMessage richMessage)
+                await HandleRichMessageAsync(post, richMessage);
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"  ⚠ Rich message processing failed for message {message.id}: {ex.GetType().Name}: {ex.Message}");
+        }
+
+        try
+        {
             if (message.media != null)
                 await HandleMediaAsync(post, message.media);
         }
@@ -438,34 +448,90 @@ public partial class TelegramService : IDisposable
             {
                 case MessageMediaPhoto { photo: Photo photoData }:
                     {
+                        post.PostType = "photo";
                         var fileName = $"{post.Id}_photo.jpg";
-                        if (await DownloadMediaAsync(fileName, 0, stream => _client!.DownloadFileAsync(photoData, stream)))
+                        if (await TryDownloadAsync(fileName, 0, stream => _client!.DownloadFileAsync(photoData, stream)))
                         {
                             post.MediaFiles.Add(fileName);
-                            post.PostType = "photo";
+                        }
+                        else
+                        {
+                            EnsureNonEmptyContent(post, "🖼️ Photo");
                         }
                         break;
                     }
                 case MessageMediaDocument { document: Document doc }:
                     {
+                        post.PostType = GetDocumentPostType(doc);
                         var fileName = GetDocumentFileName(doc, post.Id);
-                        if (await DownloadMediaAsync(fileName, doc.size, stream => _client!.DownloadFileAsync(doc, stream)))
+                        if (await TryDownloadAsync(fileName, doc.size, stream => _client!.DownloadFileAsync(doc, stream)))
                         {
                             post.MediaFiles.Add(fileName);
-                            post.PostType = "document";
+                        }
+                        else
+                        {
+                            EnsureNonEmptyContent(post, DocumentFallback(doc));
                         }
                         break;
                     }
                 case MessageMediaWebPage webPageMedia:
-                    {
-                        await HandleWebPageMediaAsync(post, webPageMedia.webpage);
-                        break;
-                    }
+                    await HandleWebPageMediaAsync(post, webPageMedia.webpage);
+                    break;
                 case MessageMediaPoll pollMedia:
-                    {
-                        HandlePollMedia(post, pollMedia);
-                        break;
-                    }
+                    HandlePollMedia(post, pollMedia);
+                    break;
+
+                // Less common / newer media types. They have no downloadable file (or none we
+                // support), so record them as a short text instead of leaving the post empty.
+                case MessageMediaStory:
+                    post.PostType = "story";
+                    EnsureNonEmptyContent(post, "📱 Shared a Telegram story.");
+                    break;
+                case MessageMediaVideoStream:
+                    post.PostType = "video";
+                    EnsureNonEmptyContent(post, "🎥 Video stream.");
+                    break;
+                case MessageMediaDice dice:
+                    post.PostType = "dice";
+                    EnsureNonEmptyContent(post, string.IsNullOrWhiteSpace(dice.emoticon) ? "🎲 Dice" : $"🎲 {dice.emoticon}");
+                    break;
+                case MessageMediaVenue venue:
+                    post.PostType = "venue";
+                    EnsureNonEmptyContent(post, string.IsNullOrWhiteSpace(venue.title) ? "📍 Venue" : $"📍 {venue.title}");
+                    break;
+                case MessageMediaGeo:
+                    post.PostType = "location";
+                    EnsureNonEmptyContent(post, "📍 Location");
+                    break;
+                case MessageMediaContact:
+                    post.PostType = "contact";
+                    EnsureNonEmptyContent(post, "👤 Contact");
+                    break;
+                case MessageMediaGame:
+                    post.PostType = "game";
+                    EnsureNonEmptyContent(post, "🎮 Game");
+                    break;
+                case MessageMediaInvoice:
+                    post.PostType = "payment";
+                    EnsureNonEmptyContent(post, "🧾 Invoice");
+                    break;
+                case MessageMediaPaidMedia:
+                    post.PostType = "paid_media";
+                    EnsureNonEmptyContent(post, "💎 Paid media");
+                    break;
+                case MessageMediaGiveaway:
+                case MessageMediaGiveawayResults:
+                    post.PostType = "giveaway";
+                    EnsureNonEmptyContent(post, "🎁 Giveaway");
+                    break;
+                case MessageMediaToDo:
+                    post.PostType = "todo";
+                    EnsureNonEmptyContent(post, "✅ To-do list");
+                    break;
+                case MessageMediaUnsupported:
+                    post.PostType = "media";
+                    EnsureNonEmptyContent(post, "📎 Media");
+                    break;
             }
         }
         catch (Exception ex)
@@ -473,6 +539,43 @@ public partial class TelegramService : IDisposable
             Console.WriteLine($"Failed to handle media for post {post.Id}: {ex.Message}");
         }
     }
+
+    /// <summary>Downloads media without failing the whole post on error; returns false and keeps the post non-empty instead.</summary>
+    private async Task<bool> TryDownloadAsync(string fileName, long sizeBytes, Func<Stream, Task> download)
+    {
+        try
+        {
+            return await DownloadMediaAsync(fileName, sizeBytes, download);
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"  ⚠ Download failed for {fileName}: {ex.Message}");
+            return false;
+        }
+    }
+
+    /// <summary>Leaves an existing caption alone and only fills in a fallback when the post would otherwise be empty.</summary>
+    private static void EnsureNonEmptyContent(TelegramPost post, string fallback)
+    {
+        if (string.IsNullOrWhiteSpace(post.Content))
+        {
+            post.Content = fallback;
+        }
+    }
+
+    private static string GetDocumentPostType(Document doc) =>
+        doc.attributes?.Any(a => a is DocumentAttributeVideo) == true
+            ? "video"
+            : doc.attributes?.Any(a => a is DocumentAttributeAudio) == true
+                ? "audio"
+                : "document";
+
+    private static string DocumentFallback(Document doc) => GetDocumentPostType(doc) switch
+    {
+        "video" => "🎬 Video (file not downloaded)",
+        "audio" => "🎵 Audio (file not downloaded)",
+        _ => "📄 Document (file not downloaded)"
+    };
 
     /// <summary>
     /// Makes sure <paramref name="fileName"/> exists in the media folder. Existing files are kept (no
