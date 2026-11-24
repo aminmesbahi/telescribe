@@ -7,7 +7,7 @@
     <PackageVersion Include="Markdig" Version="1.6.0" />
     <PackageVersion Include="Microsoft.Extensions.AI.OpenAI" Version="11.0.0" />
     <PackageVersion Include="WordPressPCL" Version="3.0.0" />
-    <PackageVersion Include="WTelegramClient" Version="4.4.10" />
+    <PackageVersion Include="WTelegramClient" Version="4.4.11" />
     <!-- Console -->
     <PackageVersion Include="System.CommandLine" Version="3.0.0" />
     <PackageVersion Include="Microsoft.Extensions.Configuration" Version="11.0.0" />
