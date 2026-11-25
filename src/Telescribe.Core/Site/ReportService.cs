@@ -133,13 +133,24 @@ public sealed class ReportService
 
     public async Task<string> GenerateAsync(string exportDirectory, CancellationToken cancellationToken = default)
     {
+        return await GenerateAsync(
+            exportDirectory,
+            StatsHistory.DefaultPath(exportDirectory),
+            cancellationToken);
+    }
+
+    public async Task<string> GenerateAsync(
+        string exportDirectory,
+        string statsHistoryPath,
+        CancellationToken cancellationToken = default)
+    {
         var summary = await LoadSummaryAsync(exportDirectory, cancellationToken)
             ?? throw new FileNotFoundException("Export summary not found. Run an export first.", Path.Combine(exportDirectory, "summary.json"));
 
         var reportsDirectory = Path.Combine(exportDirectory, "reports");
         Directory.CreateDirectory(reportsDirectory);
 
-        var history = StatsHistory.Load(StatsHistory.DefaultPath(exportDirectory));
+        var history = StatsHistory.Load(statsHistoryPath);
         var reportPath = Path.Combine(reportsDirectory, "analytics_report.html");
         await File.WriteAllTextAsync(reportPath, Render(summary, DateTime.UtcNow, history), cancellationToken);
         return reportPath;

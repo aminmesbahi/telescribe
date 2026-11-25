@@ -4,6 +4,8 @@ public class TelegramConfig
 {
     public string PhoneNumber { get; set; } = string.Empty;
     public string ChannelId { get; set; } = string.Empty;
+    public List<TelegramChannelConfig> Channels { get; set; } = [];
+    public string ExportDirectory { get; set; } = "./exports";
     public int ApiId { get; set; }
     public string ApiHash { get; set; } = string.Empty;
     public int SummaryCharacterCount { get; set; } = 200;

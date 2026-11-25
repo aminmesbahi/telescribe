@@ -20,12 +20,21 @@ public static class ArchiveService
 
     public static async Task<ArchiveResult> CreateAsync(string exportDirectory, string archivePath, CancellationToken cancellationToken = default)
     {
+        return await CreateAsync(exportDirectory, archivePath, StatsHistory.DefaultPath(exportDirectory), cancellationToken);
+    }
+
+    public static async Task<ArchiveResult> CreateAsync(
+        string exportDirectory,
+        string archivePath,
+        string statsHistoryPath,
+        CancellationToken cancellationToken = default)
+    {
         if (!Directory.Exists(exportDirectory))
         {
             throw new DirectoryNotFoundException($"Export directory not found: {exportDirectory}");
         }
 
-        var files = EnumerateContent(exportDirectory).ToList();
+        var files = EnumerateContent(exportDirectory, statsHistoryPath).ToList();
         if (files.Count == 0)
         {
             throw new InvalidOperationException("Nothing to archive: no exported posts found.");
@@ -60,18 +69,26 @@ public static class ArchiveService
     /// <summary>Top-level posts, raw/processed copies, media, and the summary/statistics files.</summary>
     internal static IEnumerable<(string FullPath, string EntryName)> EnumerateContent(string exportDirectory)
     {
+        return EnumerateContent(exportDirectory, StatsHistory.DefaultPath(exportDirectory));
+    }
+
+    internal static IEnumerable<(string FullPath, string EntryName)> EnumerateContent(string exportDirectory, string statsHistoryPath)
+    {
         foreach (var file in Directory.EnumerateFiles(exportDirectory, "*.md", SearchOption.TopDirectoryOnly))
         {
             yield return (file, Path.GetFileName(file));
         }
 
-        foreach (var name in new[] { "summary.json", "stats-history.jsonl" })
+        var summaryPath = Path.Combine(exportDirectory, "summary.json");
+        if (File.Exists(summaryPath))
         {
-            var path = Path.Combine(exportDirectory, name);
-            if (File.Exists(path))
-            {
-                yield return (path, name);
-            }
+            yield return (summaryPath, "summary.json");
+        }
+
+        var fullStatsPath = Path.GetFullPath(statsHistoryPath);
+        if (File.Exists(fullStatsPath))
+        {
+            yield return (fullStatsPath, "stats-history.jsonl");
         }
 
         foreach (var folder in new[] { "raw", "processed", "media" })

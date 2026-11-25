@@ -14,6 +14,7 @@ Telescribe turns your Telegram channel into a content hub. It exports posts with
 
 ### 📥 **Telegram Export**
 - Export the **full history** of any Telegram channel you can access (public channels by `@username`, `t.me/` link or numeric id; no cap on post count)
+- Configure and export several channels/chats with isolated export, statistics and static-site folders; select one with `--channel` or process all configured channels
 - Download media files (images, videos, documents, audio); files already on disk are never re-downloaded, an optional `MaxMediaSizeMB` skips huge documents, and downloads are written atomically
 - Albums (several photos/videos posted together) are merged into a single post
 - Exports polls with vote counts and visual bars
@@ -120,7 +121,11 @@ Copy `appsettings.example.json` to `appsettings.json` in `Telescribe.Console` an
 {
   "TelegramConfig": {
     "PhoneNumber": "+1234567890",
-    "ChannelId": "@yourchannel",
+    "Channels": [
+      { "Id": "@yourchannel", "Name": "My channel" },
+      { "Id": "t.me/RepoFA", "Name": "RepoFA" }
+    ],
+    "ExportDirectory": "./exports",
     "ApiId": 12345678,
     "ApiHash": "your-api-hash",
     "StaticSite": {
@@ -137,7 +142,17 @@ Copy `appsettings.example.json` to `appsettings.json` in `Telescribe.Console` an
 }
 ```
 
-`ChannelId` can be `@name`, `name`, a `t.me/name` link, a numeric id (a Bot-API style `-100…` id is fine), or the channel title.
+`Id` accepts `@name`, `name`, a `t.me/name` link, a numeric id (a Bot-API style `-100…` id is fine), or the channel title. The old singular `ChannelId` remains supported, but is now stored below the channel-specific folder as well. Each configured channel defaults to:
+
+```text
+exports/
+  My-channel/                  # posts, media, summary, statistics
+    site/                      # generated website
+  RepoFA/
+    site/
+```
+
+Channel `ExportDirectory`, `SiteOutputDirectory` and `StatsHistoryPath` can override those locations. Paths in `ExportDirectory` are relative to the shared `ExportDirectory`; the other two are relative to that channel's export folder. A shared `StaticSite:OutputDirectory` becomes a root with one subfolder per channel. Channel names are converted to safe folder slugs and must be unique.
 
 **Keep secrets out of the file.** Values can also come from [user secrets](https://learn.microsoft.com/aspnet/core/security/app-secrets) or environment variables, which override `appsettings.json`:
 
@@ -161,7 +176,7 @@ Or run a command directly (exit code is non-zero on failure; `--help` works on e
 
 | Command | What it does |
 |---|---|
-| `export` | Download the full channel history |
+| `export [--channel <name\|id\|slug\|number\|all>]` | Download one channel, or all channels |
 | `update` | Fetch new posts and refresh the statistics of recent ones |
 | `ai [--force] [--limit N]` | Generate titles and hashtags |
 | `build [-o DIR] [--clean] [--no-open]` | Build or refresh the static site (alias `static`) |
@@ -172,7 +187,11 @@ Or run a command directly (exit code is non-zero on failure; `--help` works on e
 
 ```bash
 dotnet run --project Telescribe.Console -- sync --ai --deploy /var/www/mychannel
+dotnet run --project Telescribe.Console -- export --channel RepoFA
+dotnet run --project Telescribe.Console -- sync --channel all
 ```
+
+With multiple configured channels, non-interactive commands require `--channel`; interactive mode prompts for the active channel and provides `c` to switch it.
 
 The first login asks for the verification code Telegram sends you (and your 2FA password, typed without echo if you use one). The session is then stored in `WTelegram.session` (or `TelegramConfig:SessionPath`), which is git-ignored; keep it private.
 
@@ -185,6 +204,7 @@ The first login asks for the verification code Telegram sends you (and your 2FA 
 4. **WordPress Integration** - Publish new and changed posts
 5. **Analytics Reports** - Charts and engagement insights
 6. **Static Website Builder** - Build or refresh the site
+`c`. **Change Channel** - Select another configured channel
 7. **Exit Application**
 8. **Sync** - Update from Telegram, then rebuild the site
 9. **Archive** - Pack posts and media into a ZIP
@@ -214,7 +234,7 @@ Templates live in `src/Telescribe.Console/templates/{name}/` and consist of plai
 - [ ] Web dashboard
 
 ### Version 3.0 (Ideas)
-- [ ] Multi-channel support
+- [x] Multi-channel support
 - [ ] Content scheduling
 - [ ] Plugin system for custom extensions
 - [ ] Hosted/cloud deployment

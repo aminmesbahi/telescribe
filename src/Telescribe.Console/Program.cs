@@ -54,6 +54,11 @@ public static class Program
 
     private static async Task<int> RunMenuAsync(Workflows workflows)
     {
+        if (workflows.Channels.Count > 1)
+        {
+            workflows = SelectChannel(workflows) ?? workflows;
+        }
+
         using var cancel = new CancellationTokenSource();
         CancelKeyPress += (_, e) =>
         {
@@ -67,7 +72,7 @@ public static class Program
 
         while (true)
         {
-            DisplayMainMenu();
+            DisplayMainMenu(workflows);
             var input = ReadLine()?.Trim();
             if (input is null)
             {
@@ -101,6 +106,10 @@ public static class Program
                 case "9":
                     await workflows.ArchiveAsync(output: null, token);
                     break;
+                case "c":
+                case "channel":
+                    workflows = SelectChannel(workflows) ?? workflows;
+                    break;
                 case "7":
                 case "0":
                 case "exit":
@@ -124,7 +133,7 @@ public static class Program
         }
     }
 
-    static void DisplayMainMenu()
+    static void DisplayMainMenu(Workflows workflows)
     {
         if (!IsOutputRedirected)
         {
@@ -137,6 +146,11 @@ public static class Program
         WriteLine("╚════════════════════════════════════════════════════════════════╝");
         WriteLine();
         WriteLine("🚀 Choose your action:");
+        if (workflows.Channels.Count > 0)
+        {
+            WriteLine($"   📺 Active channel: {workflows.ActiveChannel.Name} ({workflows.ActiveChannel.Id})");
+            WriteLine($"   📁 Export path:   {workflows.ExportDirectory}");
+        }
         WriteLine();
         WriteLine("   📥 1  Export Channel Posts      - Download all posts from Telegram");
         WriteLine("   🔄 2  Update Existing Posts     - Sync new posts since last export");
@@ -146,10 +160,43 @@ public static class Program
         WriteLine("   🏗️  6  Static Website Builder    - Build or refresh the website");
         WriteLine("   🔁 8  Sync                      - Update from Telegram, then rebuild the site");
         WriteLine("   📦 9  Archive                   - Pack posts and media into a ZIP");
+        if (workflows.Channels.Count > 1)
+        {
+            WriteLine("   📺 c  Change Channel             - Select another configured channel");
+        }
         WriteLine("   🚪 7  Exit Application          - Close Telescribe");
         WriteLine();
         WriteLine("═══════════════════════════════════════════════════════════════");
-        Write("🎯 Enter your choice (1-9): ");
+        Write("🎯 Enter your choice (1-9, c): ");
+    }
+
+    static Workflows? SelectChannel(Workflows workflows)
+    {
+        WriteLine("\n📺 Select a channel:");
+        foreach (var channel in workflows.Channels)
+        {
+            WriteLine($"   {channel.Index}. {channel.Name} ({channel.Id})");
+            WriteLine($"      {channel.ExportDirectory}");
+        }
+
+        while (true)
+        {
+            Write("Channel number or name: ");
+            var input = ReadLine()?.Trim();
+            if (string.IsNullOrEmpty(input))
+            {
+                return workflows;
+            }
+
+            try
+            {
+                return workflows.SelectChannel(TelegramChannels.Find(workflows.Channels, input));
+            }
+            catch (ArgumentException ex)
+            {
+                WriteLine($"❌ {ex.Message}");
+            }
+        }
     }
 
     static TelegramConfig? LoadConfiguration(IConfiguration configuration)
@@ -159,19 +206,22 @@ public static class Program
             var config = new TelegramConfig();
             configuration.GetSection("TelegramConfig").Bind(config);
 
+            var channelsConfigured = config.Channels.Any(channel => !string.IsNullOrWhiteSpace(channel.Id)) ||
+                                     !string.IsNullOrWhiteSpace(config.ChannelId);
             if (string.IsNullOrEmpty(config.PhoneNumber) ||
-                string.IsNullOrEmpty(config.ChannelId) ||
+                !channelsConfigured ||
                 config.ApiId == 0 ||
                 string.IsNullOrEmpty(config.ApiHash))
             {
                 WriteLine("❌ Missing required Telegram configuration. Set these in appsettings.json, user secrets or environment variables (TelegramConfig__ApiId, ...):");
                 WriteLine("   • PhoneNumber");
-                WriteLine("   • ChannelId");
+                WriteLine("   • ChannelId or Channels");
                 WriteLine("   • ApiId");
                 WriteLine("   • ApiHash");
                 return null;
             }
 
+            TelegramChannels.Resolve(config);
             return config;
         }
         catch (Exception ex)

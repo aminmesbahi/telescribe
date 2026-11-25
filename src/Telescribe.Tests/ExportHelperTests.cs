@@ -52,6 +52,92 @@ public class ChannelReferenceTests
     }
 }
 
+public class TelegramChannelsTests
+{
+    [Fact]
+    public void Legacy_channel_setting_also_gets_a_channel_directory()
+    {
+        using var temp = new TempDirectory();
+        var exportRoot = temp.Combine("exports");
+        var config = new TelegramConfig
+        {
+            ChannelId = "@Legacy",
+            ExportDirectory = exportRoot
+        };
+
+        var channel = Assert.Single(TelegramChannels.Resolve(config));
+
+        Assert.Equal(Path.GetFullPath(temp.Combine("exports", "Legacy")), channel.ExportDirectory);
+        Assert.Equal(Path.Combine(channel.ExportDirectory, "site"), channel.SiteDirectory);
+        Assert.Equal(Path.Combine(channel.ExportDirectory, "stats-history.jsonl"), channel.StatsHistoryPath);
+    }
+
+    [Fact]
+    public void Multiple_channels_get_isolated_default_paths()
+    {
+        using var temp = new TempDirectory();
+        var config = new TelegramConfig
+        {
+            ExportDirectory = temp.Combine("exports"),
+            Channels =
+            [
+                new TelegramChannelConfig { Id = "t.me/RepoFA" },
+                new TelegramChannelConfig { Id = "@TechAfternoon" }
+            ]
+        };
+
+        var channels = TelegramChannels.Resolve(config);
+
+        Assert.Equal(
+            [Path.GetFullPath(temp.Combine("exports", "RepoFA")), Path.GetFullPath(temp.Combine("exports", "TechAfternoon"))],
+            channels.Select(channel => channel.ExportDirectory));
+        Assert.All(channels, channel => Assert.Equal(Path.Combine(channel.ExportDirectory, "site"), channel.SiteDirectory));
+        Assert.All(channels, channel => Assert.Equal(Path.Combine(channel.ExportDirectory, "stats-history.jsonl"), channel.StatsHistoryPath));
+    }
+
+    [Fact]
+    public void Channel_paths_can_be_customised_independently()
+    {
+        using var temp = new TempDirectory();
+        var config = new TelegramConfig
+        {
+            ExportDirectory = temp.Combine("exports"),
+            Channels =
+            [
+                new TelegramChannelConfig
+                {
+                    Id = "@source",
+                    Name = "Documentation",
+                    ExportDirectory = "content",
+                    SiteOutputDirectory = "website",
+                    StatsHistoryPath = "statistics/history.jsonl"
+                }
+            ]
+        };
+
+        var channel = Assert.Single(TelegramChannels.Resolve(config));
+
+        Assert.Equal(Path.GetFullPath(temp.Combine("exports", "content")), channel.ExportDirectory);
+        Assert.Equal(Path.GetFullPath(temp.Combine("exports", "content", "website")), channel.SiteDirectory);
+        Assert.Equal(Path.GetFullPath(temp.Combine("exports", "content", "statistics", "history.jsonl")), channel.StatsHistoryPath);
+    }
+
+    [Fact]
+    public void Duplicate_channel_slugs_are_rejected()
+    {
+        var config = new TelegramConfig
+        {
+            Channels =
+            [
+                new TelegramChannelConfig { Id = "@first", Name = "Same" },
+                new TelegramChannelConfig { Id = "@second", Name = "same" }
+            ]
+        };
+
+        Assert.Throws<InvalidOperationException>(() => TelegramChannels.Resolve(config));
+    }
+}
+
 public class MediaFileNameTests
 {
     [Theory]

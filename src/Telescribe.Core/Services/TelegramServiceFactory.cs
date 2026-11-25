@@ -18,8 +18,12 @@ public static class TelegramServiceFactory
         return new TelegramService(config);
     }
 
-    public static TelegramService CreateService(TelegramConfig config)
+    public static TelegramService CreateService(
+        TelegramConfig config,
+        string? exportPath = null,
+        string? channelId = null,
+        string? statsHistoryPath = null)
     {
-        return new TelegramService(config);
+        return new TelegramService(config, exportPath ?? config.ExportDirectory, channelId, statsHistoryPath);
     }
 }

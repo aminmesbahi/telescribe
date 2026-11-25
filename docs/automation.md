@@ -11,6 +11,8 @@ The process exits with `0` on success and `1` on failure, so schedulers can aler
 
 ```bash
 dotnet run --project Telescribe.Console -- sync --ai --deploy /var/www/mychannel --mirror
+dotnet run --project Telescribe.Console -- sync --channel '<Channelname>'
+dotnet run --project Telescribe.Console -- sync --channel all
 ```
 
 ## One-time setup: log in interactively
@@ -25,7 +27,8 @@ Put the other secrets in environment variables or user secrets, not in a committ
 export TelegramConfig__ApiId=12345678
 export TelegramConfig__ApiHash=...
 export TelegramConfig__PhoneNumber=+1234567890
-export TelegramConfig__ChannelId=@yourchannel
+export TelegramConfig__Channels__0__Id=@yourchannel
+export TelegramConfig__Channels__0__Name=MyChannel
 export TelegramConfig__Llm__ApiKey=...
 ```
 
@@ -45,7 +48,8 @@ Arguments: sync --ai --deploy D:\sites\mychannel --mirror
 Start in:  C:\tools\telescribe
 ```
 
-"Start in" matters: the `exports` folder and the session file are relative to the working directory.
+"Start in" matters: relative export locations and the session file are resolved from the working directory. Configure
+`TelegramConfig__Channels__0__Id`, `TelegramConfig__Channels__1__Id`, and pass `--channel <selector>` (or `--channel all`) when running non-interactively.
 
 ## Docker
 

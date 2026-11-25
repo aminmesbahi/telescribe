@@ -22,15 +22,23 @@ public partial class TelegramService : IDisposable
 
     private Client? _client;
     private readonly TelegramConfig _config;
+    private readonly string _channelId;
     private readonly string _exportPath;
+    private readonly string _statsHistoryPath;
     private readonly string _rawExportPath;
     private readonly string _processedExportPath;
     private readonly string _mediaPath;
 
-    public TelegramService(TelegramConfig config, string exportPath = "./exports")
+    public TelegramService(
+        TelegramConfig config,
+        string exportPath = "./exports",
+        string? channelId = null,
+        string? statsHistoryPath = null)
     {
         _config = config;
+        _channelId = string.IsNullOrWhiteSpace(channelId) ? config.ChannelId : channelId;
         _exportPath = exportPath;
+        _statsHistoryPath = statsHistoryPath ?? StatsHistory.DefaultPath(exportPath);
         _rawExportPath = Path.Combine(exportPath, "raw");
         _processedExportPath = Path.Combine(exportPath, "processed");
         _mediaPath = Path.Combine(exportPath, "media");
@@ -110,7 +118,7 @@ public partial class TelegramService : IDisposable
             errors.Add("Phone Number is required in international format (e.g., +1234567890)");
         }
 
-        if (string.IsNullOrWhiteSpace(_config.ChannelId) || _config.ChannelId == "your_channel_id")
+        if (string.IsNullOrWhiteSpace(_channelId) || _channelId == "your_channel_id")
         {
             errors.Add("Channel ID or username is required (e.g., @channelname or channel ID)");
         }
@@ -194,7 +202,8 @@ public partial class TelegramService : IDisposable
         var exportSummary = new ExportSummary
         {
             ExportTime = DateTime.UtcNow,
-            ExportPath = _exportPath
+            ExportPath = _exportPath,
+            ChannelId = _channelId
         };
 
         try
@@ -234,7 +243,7 @@ public partial class TelegramService : IDisposable
 
             exportSummary.TotalPosts = exportSummary.Posts.Count;
             await SaveSummaryAsync(exportSummary);
-            StatsHistory.AppendChanges(StatsHistory.DefaultPath(_exportPath), exportSummary.ExportTime, exportSummary.Posts);
+            StatsHistory.AppendChanges(_statsHistoryPath, exportSummary.ExportTime, exportSummary.Posts);
 
             Console.WriteLine($"Exported {exportSummary.TotalPosts} posts to {_exportPath}");
             return exportSummary;
@@ -307,7 +316,7 @@ public partial class TelegramService : IDisposable
 
     private async Task<(ChatBase Chat, InputPeer Peer)> ResolveTargetAsync()
     {
-        var reference = ChannelReference.Parse(_config.ChannelId);
+        var reference = ChannelReference.Parse(_channelId);
         ChatBase? chat = null;
 
         // Public channels can be resolved by username without being in the account's dialog list.
@@ -332,7 +341,7 @@ public partial class TelegramService : IDisposable
 
         if (chat is null)
         {
-            throw new InvalidOperationException($"Channel/Chat '{_config.ChannelId}' not found");
+            throw new InvalidOperationException($"Channel/Chat '{_channelId}' not found");
         }
 
         InputPeer peer = chat switch
@@ -994,13 +1003,15 @@ public partial class TelegramService : IDisposable
             }
 
             // First update since history tracking existed: record the previous export as the baseline.
-            var historyPath = StatsHistory.DefaultPath(_exportPath);
+            var historyPath = _statsHistoryPath;
             if (!File.Exists(historyPath))
             {
                 StatsHistory.AppendChanges(historyPath, existingSummary.ExportTime, existingSummary.Posts);
             }
 
             existingSummary.ExportTime = updateSummary.UpdateTime;
+            existingSummary.ChannelId = _channelId;
+            existingSummary.ExportPath = _exportPath;
             existingSummary.MediaFilesCount += updateSummary.MediaFilesCount;
 
             foreach (var newPostSummary in updateSummary.NewPosts)
@@ -1018,7 +1029,7 @@ public partial class TelegramService : IDisposable
 
             await File.WriteAllTextAsync(Path.Combine(_exportPath, "summary.json"), JsonSerializer.Serialize(existingSummary, SummaryJson));
             StatsHistory.AppendChanges(
-                StatsHistory.DefaultPath(_exportPath),
+                _statsHistoryPath,
                 updateSummary.UpdateTime,
                 updateSummary.NewPosts.Concat(refreshedPosts.Select(CreatePostSummary)));
             Console.WriteLine($"Updated export summary: {existingSummary.TotalPosts} total posts");

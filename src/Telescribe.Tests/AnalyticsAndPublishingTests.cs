@@ -281,6 +281,25 @@ public class ArchiveServiceTests
         await Assert.ThrowsAsync<InvalidOperationException>(() => ArchiveService.CreateAsync(temp.Combine("exports"), temp.Combine("a.zip")));
         await Assert.ThrowsAsync<DirectoryNotFoundException>(() => ArchiveService.CreateAsync(temp.Combine("missing"), temp.Combine("a.zip")));
     }
+
+    [Fact]
+    public async Task Custom_statistics_file_is_included()
+    {
+        using var temp = new TempDirectory();
+        var exports = temp.Combine("exports", "RepoFA");
+        var statistics = temp.Combine("statistics", "RepoFA.jsonl");
+        Directory.CreateDirectory(exports);
+        Directory.CreateDirectory(Path.GetDirectoryName(statistics)!);
+        File.WriteAllText(Path.Combine(exports, "1.md"), "post");
+        File.WriteAllText(statistics, "history");
+
+        var result = await ArchiveService.CreateAsync(exports, temp.Combine("backup.zip"), statistics);
+
+        using var zip = ZipFile.OpenRead(result.Path);
+        var entry = Assert.Single(zip.Entries, item => item.FullName == "stats-history.jsonl");
+        using var reader = new StreamReader(entry.Open());
+        Assert.Equal("history", reader.ReadToEnd());
+    }
 }
 
 public class SiteDeployerTests

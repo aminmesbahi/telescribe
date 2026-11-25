@@ -4,6 +4,7 @@ public class ExportSummary
 {
     public int TotalPosts { get; set; }
     public DateTime ExportTime { get; set; }
+    public string ChannelId { get; set; } = string.Empty;
     public string ExportPath { get; set; } = "./exports";
     public string SummaryFilePath { get; set; } = string.Empty;
     public int MediaFilesCount { get; set; }

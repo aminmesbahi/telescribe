@@ -12,12 +12,87 @@ public sealed record SyncOptions(bool Ai, bool WordPress, string? DeployTarget, 
 /// The operations behind both the interactive menu and the command line. Each returns true on success so the
 /// command line can exit with a meaningful status code.
 /// </summary>
-public sealed class Workflows(TelegramConfig config)
+public sealed class Workflows
 {
-    public const string ExportDirectory = "./exports";
+    private readonly TelegramConfig _config;
+    private readonly TelegramChannelTarget? _activeChannel;
+
+    public Workflows(TelegramConfig config)
+        : this(config, TelegramChannels.Resolve(config), 0)
+    {
+    }
+
+    private Workflows(TelegramConfig config, IReadOnlyList<TelegramChannelTarget> channels, int selectedIndex)
+    {
+        _config = config;
+        Channels = channels;
+        _activeChannel = channels.Count == 0 ? null : channels[selectedIndex];
+    }
+
+    public IReadOnlyList<TelegramChannelTarget> Channels { get; }
+    public TelegramChannelTarget ActiveChannel => _activeChannel
+        ?? throw new InvalidOperationException("No channels are configured. Set TelegramConfig:ChannelId or TelegramConfig:Channels.");
+    public string ExportDirectory => ActiveChannel.ExportDirectory;
 
     /// <summary>Whether the config asks for the site to be opened after a build.</summary>
-    public bool OpenAfterBuild => config.StaticSite.OpenBrowserAfterGeneration;
+    public bool OpenAfterBuild => _config.StaticSite.OpenBrowserAfterGeneration;
+
+    public async Task<bool> RunSelectionAsync(
+        string? selector,
+        Func<Workflows, CancellationToken, Task<bool>> operation,
+        CancellationToken cancellationToken)
+    {
+        if (Channels.Count == 0)
+        {
+            WriteLine("❌ No channels are configured. Set TelegramConfig:ChannelId or TelegramConfig:Channels.");
+            return false;
+        }
+
+        if (string.Equals(selector, "all", StringComparison.OrdinalIgnoreCase))
+        {
+            var success = true;
+            foreach (var channel in Channels)
+            {
+                WriteLine($"\n════════ Channel: {channel.Name} ({channel.Id}) ════════");
+                WriteLine($"📁 Export path: {channel.ExportDirectory}");
+                success &= await operation(new Workflows(_config, Channels, channel.Index - 1), cancellationToken);
+                if (cancellationToken.IsCancellationRequested)
+                {
+                    break;
+                }
+            }
+
+            return success;
+        }
+
+        if (selector is null && Channels.Count > 1)
+        {
+            WriteLine("❌ More than one channel is configured. Select one with --channel <name|id|slug|number> or use --channel all.");
+            WriteLine("Configured channels:");
+            foreach (var channel in Channels)
+            {
+                WriteLine($"   {channel.Index}. {channel.Name} ({channel.Id})");
+            }
+
+            return false;
+        }
+
+        try
+        {
+            var selected = selector is null ? ActiveChannel : TelegramChannels.Find(Channels, selector);
+            WriteLine($"📺 Channel: {selected.Name} ({selected.Id})");
+            WriteLine($"📁 Export path: {selected.ExportDirectory}");
+            return await operation(new Workflows(_config, Channels, selected.Index - 1), cancellationToken);
+        }
+        catch (ArgumentException ex)
+        {
+            WriteLine($"❌ {ex.Message}");
+            return false;
+        }
+    }
+
+    public Workflows SelectChannel(TelegramChannelTarget channel) =>
+        new(_config, Channels, channel.Index - 1);
 
     public async Task<bool> ExportAsync(CancellationToken cancellationToken)
     {
@@ -113,13 +188,13 @@ public sealed class Workflows(TelegramConfig config)
             return false;
         }
 
-        using var llm = new LlmService(config.Llm);
+        using var llm = new LlmService(_config.Llm);
         if (!await llm.InitializeAsync())
         {
             return false;
         }
 
-        var summary = await new PostEnrichmentService(llm, config.Llm, ExportDirectory)
+        var summary = await new PostEnrichmentService(llm, _config.Llm, ExportDirectory)
             .RunAsync(new EnrichmentOptions(force, limit), cancellationToken);
 
         WriteLine("✅ AI processing finished.");
@@ -144,15 +219,15 @@ public sealed class Workflows(TelegramConfig config)
             return false;
         }
 
-        var templatesPath = ResolveTemplatesPath(config.StaticSite.TemplateName);
+        var templatesPath = ResolveTemplatesPath(_config.StaticSite.TemplateName);
         if (templatesPath == null)
         {
             return false;
         }
 
-        var siteDir = output ?? SiteBuilder.ResolveSiteDirectory(config.StaticSite, ExportDirectory);
+        var siteDir = output ?? ActiveChannel.SiteDirectory;
         WriteLine($"🏗️ Site folder: {siteDir}");
-        WriteLine($"🎨 Template: {config.StaticSite.TemplateName}");
+        WriteLine($"🎨 Template: {_config.StaticSite.TemplateName}");
 
         try
         {
@@ -161,7 +236,7 @@ public sealed class Workflows(TelegramConfig config)
                 SiteBuilder.CleanSiteDirectory(siteDir);
             }
 
-            var result = await new SiteBuilder(config.StaticSite, templatesPath).BuildAsync(ExportDirectory, siteDir, cancellationToken);
+            var result = await new SiteBuilder(_config.StaticSite, templatesPath).BuildAsync(ExportDirectory, siteDir, cancellationToken);
 
             foreach (var warning in result.Warnings)
             {
@@ -212,7 +287,10 @@ public sealed class Workflows(TelegramConfig config)
 
         try
         {
-            var path = await new ReportService(templatesPath).GenerateAsync(ExportDirectory, cancellationToken);
+            var path = await new ReportService(templatesPath).GenerateAsync(
+                ExportDirectory,
+                ActiveChannel.StatsHistoryPath,
+                cancellationToken);
             WriteLine("✅ Analytics report generated successfully!");
             WriteLine($"   📄 Report saved to: {path}");
             return true;
@@ -253,13 +331,13 @@ public sealed class Workflows(TelegramConfig config)
             return true;
         }
 
-        if (string.IsNullOrWhiteSpace(config.WordPress.SiteUrl) || string.IsNullOrWhiteSpace(config.WordPress.Username))
+        if (string.IsNullOrWhiteSpace(_config.WordPress.SiteUrl) || string.IsNullOrWhiteSpace(_config.WordPress.Username))
         {
             WriteLine("❌ WordPress is not configured (WordPress:SiteUrl, Username and ApplicationPassword).");
             return false;
         }
 
-        using var wordPress = WordPressServiceFactory.CreateService(config.WordPress, ExportDirectory);
+        using var wordPress = WordPressServiceFactory.CreateService(_config.WordPress, ExportDirectory);
         if (!await wordPress.AuthenticateAsync())
         {
             return false;
@@ -288,7 +366,11 @@ public sealed class Workflows(TelegramConfig config)
 
         try
         {
-            var result = await ArchiveService.CreateAsync(ExportDirectory, output ?? ArchiveService.DefaultPath(ExportDirectory), cancellationToken);
+            var result = await ArchiveService.CreateAsync(
+                ExportDirectory,
+                output ?? ArchiveService.DefaultPath(ExportDirectory),
+                ActiveChannel.StatsHistoryPath,
+                cancellationToken);
             WriteLine($"✅ Archive created: {result.Path}");
             WriteLine($"   📦 {result.Files} files, {result.Bytes / (1024.0 * 1024.0):0.#} MB before compression");
             return true;
@@ -337,7 +419,7 @@ public sealed class Workflows(TelegramConfig config)
 
         if (options.DeployTarget is { Length: > 0 } target)
         {
-            var siteDir = SiteBuilder.ResolveSiteDirectory(config.StaticSite, ExportDirectory);
+            var siteDir = ActiveChannel.SiteDirectory;
             var result = SiteDeployer.Deploy(siteDir, target, options.Mirror);
             WriteLine($"🚚 Deployed to {target}: {result.Copied} copied, {result.Unchanged} unchanged, {result.Deleted} deleted");
         }
@@ -357,7 +439,11 @@ public sealed class Workflows(TelegramConfig config)
     {
         try
         {
-            using var telegram = TelegramServiceFactory.CreateService(config);
+            using var telegram = TelegramServiceFactory.CreateService(
+                _config,
+                ActiveChannel.ExportDirectory,
+                ActiveChannel.Id,
+                ActiveChannel.StatsHistoryPath);
 
             if (requireExistingExport)
             {
